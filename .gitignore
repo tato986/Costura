@@ -1,0 +1,17 @@
+# Compilación
+src-tauri/target/
+src-tauri/gen/
+target/
+build-*.log
+
+# Datos de desarrollo y pruebas
+.devdata/
+.devempty/
+.devfinal/
+datos/
+*.log
+gui-test.png
+
+# Capturas temporales
+shots/error*.png
+shots/zoom-label.png
