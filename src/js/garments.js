@@ -76,6 +76,18 @@
         { key: "cierre", label: "Cierre", choices: ["No", "Sí"] },
       ],
     },
+    otro: {
+      label: "Otro / Personalizado",
+      icon: "i-layers",
+      styles: ["A medida", "Arreglo / ajuste", "Patrón libre", "Hogar / decoración", "Accesorio", "Otro"],
+      fields: [
+        { key: "largo", label: "Largo total", min: 5, max: 300, def: 100 },
+        { key: "ancho", label: "Ancho", min: 5, max: 300, def: 80 },
+      ],
+      options: [
+        { key: "acabado", label: "Acabado", choices: ["Estándar", "Reforzado", "Delicado", "Rústico"] },
+      ],
+    },
   };
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
@@ -437,6 +449,34 @@
     );
   }
 
+  function otherPattern(v, o, show) {
+    const w = clamp(n(v.ancho, 80), 30, 200);
+    const h = clamp(n(v.largo, 100), 40, 240);
+    const left = 120 - w * 0.45;
+    const top = 170 - h * 0.45;
+    const right = left + w * 0.9;
+    const bottom = top + h * 0.9;
+
+    const labels = show
+      ? vLabel(left - 14, top, bottom, "largo") +
+        hLabel(left, right, bottom + 15, "ancho")
+      : "";
+
+    return svgWrap(
+      `<g>
+        <rect x="${left}" y="${top}" width="${right - left}" height="${bottom - top}" rx="8" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-width="1.6" stroke-dasharray="4 3"/>
+        <line x1="${left + 15}" y1="${top + 20}" x2="${right - 15}" y2="${top + 20}" stroke="currentColor" stroke-width="0.9" opacity=".4"/>
+        <line x1="${left + 15}" y1="${bottom - 20}" x2="${right - 15}" y2="${bottom - 20}" stroke="currentColor" stroke-width="0.9" opacity=".4"/>
+        <circle cx="120" cy="170" r="28" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="1.1" opacity=".5"/>
+        <path d="M 120 152 L 120 188 M 102 170 L 138 170" stroke="currentColor" stroke-width="1" opacity=".35"/>
+        <text x="120" y="174" text-anchor="middle" font-size="8" fill="currentColor" opacity=".7" font-weight="600" stroke="none">A MEDIDA</text>
+      </g>
+      ${labels}`,
+      240,
+      340
+    );
+  }
+
   function garmentSvg(kind, values, options, opts) {
     const show = !opts || opts.labels !== false;
     const v = values || {};
@@ -445,6 +485,7 @@
     if (kind === "pantalon") inner = pants(v, o, show);
     else if (kind === "vestido") inner = dress(v, o, show);
     else if (kind === "bolso") inner = bag(v, o, show);
+    else if (kind === "otro") inner = otherPattern(v, o, show);
     else inner = shirt(v, o, show);
     return inner;
   }

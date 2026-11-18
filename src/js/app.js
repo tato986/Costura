@@ -49,6 +49,8 @@
     orderStatus: "todos",
     clientQuery: "",
     agendaFilter: "pendientes",
+    supplyQuery: "",
+    supplyCategory: "todas",
     backups: [],
     currentOrderId: null,
     lastView: null,
@@ -224,12 +226,18 @@
   function reminders() {
     return data().reminders || [];
   }
+  function supplies() {
+    return data().supplies || [];
+  }
 
   function customerById(id) {
     return customers().find((c) => c.id === id) || null;
   }
   function orderById(id) {
     return orders().find((o) => o.id === id) || null;
+  }
+  function supplyById(id) {
+    return supplies().find((s) => s.id === id) || null;
   }
   function customerName(id) {
     const c = customerById(id);
@@ -353,7 +361,7 @@
   // ─────────────────────────── Navegación y render ───────────────────────────
 
   function setView(view) {
-    if (!["inicio", "pedidos", "clientes", "agenda", "ajustes"].includes(view)) return;
+    if (!["inicio", "pedidos", "clientes", "agenda", "insumos", "ajustes"].includes(view)) return;
     state.view = view;
     render();
     const root = $("#viewRoot");
@@ -361,31 +369,46 @@
   }
 
   function updateChrome() {
-    const s = data().settings;
-    const brand = $("#brandName");
-    if (brand) brand.textContent = s.workshopName || "Costura";
-    const sub = $("#brandSub");
-    if (sub) sub.textContent = "Gestión de taller";
+      const s = data().settings;
+      const brand = $("#brandName");
+      if (brand) brand.textContent = s.workshopName || "Costura";
+      const sub = $("#brandSub");
+      if (sub) sub.textContent = "Gestión de taller";
 
-    const active = activeOrders().length;
-    const badge = $("#navOrdersBadge");
-    if (badge) {
-      badge.textContent = String(active);
-      badge.hidden = active === 0;
+      const active = activeOrders().length;
+      const badge = $("#navOrdersBadge");
+      if (badge) {
+        badge.textContent = String(active);
+        badge.hidden = active === 0;
+      }
+
+      const today = todayStr();
+      const pendingToday = reminders().filter((r) => !r.completed && String(r.dueDate).slice(0, 10) <= today).length;
+      const agendaBadge = $("#navAgendaBadge");
+      if (agendaBadge) {
+        agendaBadge.textContent = String(pendingToday);
+        agendaBadge.hidden = pendingToday === 0;
+      }
+
+      const suppList = supplies();
+      const suppliesBadge = $("#navSuppliesBadge");
+      if (suppliesBadge) {
+        const lowStock = suppList.filter((item) => item.stock <= item.minStock && item.stock > 0).length;
+        const outStock = suppList.filter((item) => item.stock <= 0).length;
+        suppliesBadge.textContent = String(suppList.length);
+        suppliesBadge.hidden = suppList.length === 0;
+        suppliesBadge.classList.remove("is-warn", "is-bad");
+        if (outStock > 0) {
+          suppliesBadge.classList.add("is-bad");
+        } else if (lowStock > 0) {
+          suppliesBadge.classList.add("is-warn");
+        }
+      }
+
+      $(".nav-item").forEach((btn) => {
+        btn.classList.toggle("is-active", btn.dataset.view === state.view);
+      });
     }
-
-    const today = todayStr();
-    const pendingToday = reminders().filter((r) => !r.completed && String(r.dueDate).slice(0, 10) <= today).length;
-    const agendaBadge = $("#navAgendaBadge");
-    if (agendaBadge) {
-      agendaBadge.textContent = String(pendingToday);
-      agendaBadge.hidden = pendingToday === 0;
-    }
-
-    $$(".nav-item").forEach((btn) => {
-      btn.classList.toggle("is-active", btn.dataset.view === state.view);
-    });
-  }
 
   function render() {
     if (!state.ready) return;
@@ -397,6 +420,7 @@
       pedidos: viewOrders,
       clientes: viewClients,
       agenda: viewAgenda,
+      insumos: viewInsumos,
       ajustes: viewSettings,
     };
     const html = (views[state.view] || viewHome)();
@@ -635,7 +659,7 @@
         return `<tr data-action="open-order" data-id="${esc(o.id)}">
           <td>
             <div class="cell-main">${esc(o.pieceName)}</div>
-            <div class="cell-sub">${esc(G.label(o.garmentType))}${o.styleName ? " · " + esc(o.styleName) : ""}</div>
+            <div class="cell-sub">${esc(o.garmentType === "otro" && o.customType ? o.customType : G.label(o.garmentType))}${o.styleName ? " · " + esc(o.styleName) : ""}</div>
           </td>
           <td>${esc(customerName(o.customerId))}</td>
           <td>${statusPill(o.status)}</td>
@@ -1041,19 +1065,22 @@
     const form = {
       editingId: order ? order.id : null,
       type: (order && order.garmentType) || "camisa",
+      customType: (order && order.customType) || "",
       values: {},
       options: {},
       style: (order && order.styleName) || "",
       measureNotes: (order && order.measurements && order.measurements.notes) || "",
       customerId: (order && order.customerId) || presetCustomerId || (customers()[0] ? customers()[0].id : ""),
+      supplies: order && Array.isArray(order.supplies) ? JSON.parse(JSON.stringify(order.supplies)) : [],
+      images: order && Array.isArray(order.images) ? order.images.slice() : [],
     };
-    ["camisa", "pantalon", "vestido", "bolso"].forEach((k) => {
+    ["camisa", "pantalon", "vestido", "bolso", "otro"].forEach((k) => {
       form.values[k] = G.defaultValues(k);
       form.options[k] = G.defaultOptions(k);
     });
     if (order && order.measurements) {
-      Object.assign(form.values[form.type], order.measurements.values || {});
-      Object.assign(form.options[form.type], order.measurements.options || {});
+      Object.assign(form.values[form.type] || {}, order.measurements.values || {});
+      Object.assign(form.options[form.type] || {}, order.measurements.options || {});
     }
     if (!form.style) {
       const styles = G.styles(form.type);
@@ -1087,7 +1114,7 @@
       .map((c) => `<option value="${esc(c.id)}" ${orderForm.customerId === c.id ? "selected" : ""}>${esc(c.fullName)}</option>`)
       .join("");
 
-    const typeCards = ["camisa", "pantalon", "vestido", "bolso"]
+    const typeCards = ["camisa", "pantalon", "vestido", "bolso", "otro"]
       .map((k) => `<button type="button" class="type-card ${k === orderForm.type ? "is-active" : ""}" data-action="order-type" data-type="${k}">
         <svg><use href="#${G.GARMENTS[k].icon}"/></svg><span>${esc(G.label(k))}</span>
       </button>`)
@@ -1098,7 +1125,7 @@
         <div class="modal-head">
           <div>
             <h2 class="modal-title">${order ? "Editar pedido" : "Nuevo pedido"}</h2>
-            <p class="modal-sub">${order ? "Actualiza los datos, medidas o la tela de esta prenda." : "Registra la prenda, sus medidas y el anticipo."}</p>
+            <p class="modal-sub">${order ? "Actualiza los datos, insumos, fotos o medidas de este proyecto." : "Registra la prenda o proyecto, insumos a usar y anticipo."}</p>
           </div>
           <button class="icon-btn modal-close" type="button" data-action="close-modal" aria-label="Cerrar"><svg><use href="#i-x"/></svg></button>
         </div>
@@ -1106,7 +1133,7 @@
           <div class="order-layout">
             <div>
               <div class="form-section">
-                <div class="form-section-title"><svg><use href="#i-users"/></svg>Cliente y prenda</div>
+                <div class="form-section-title"><svg><use href="#i-users"/></svg>Cliente y tipo de proyecto</div>
                 <div class="form-grid">
                   <div class="field full">
                     <label class="label" for="orderCustomer">Cliente</label>
@@ -1114,15 +1141,20 @@
                     <span class="hint">¿Falta alguien? Créalo en la sección Clientes.</span>
                   </div>
                   <div class="field full">
-                    <label class="label" for="orderPiece">Prenda o proyecto</label>
-                    <input class="input" id="orderPiece" name="pieceName" maxlength="160" required placeholder="Ej. Camisa de lino blanca" value="${esc(order ? order.pieceName : "")}" />
+                    <label class="label" for="orderPiece">Nombre del proyecto o prenda</label>
+                    <input class="input" id="orderPiece" name="pieceName" maxlength="160" required placeholder="Ej. Camisa blanca de lino / Cortinas de sala / Disfraz medieval" value="${esc(order ? order.pieceName : "")}" />
                   </div>
                   <div class="field full">
-                    <span class="label">Tipo de prenda</span>
+                    <span class="label">Categoría / Tipo de proyecto</span>
                     <div class="type-grid">${typeCards}</div>
                   </div>
+                  <div class="field full" id="customTypeWrap" style="${orderForm.type === 'otro' ? '' : 'display:none'}">
+                    <label class="label" for="orderCustomType">Escribe el tipo de proyecto <span style="color:var(--accent)">*</span></label>
+                    <input class="input" id="orderCustomType" name="customType" maxlength="100" placeholder="Ej. Cortinas, Cojines, Disfraz, Falda plisada, Tapicería, Manteles…" value="${esc(orderForm.customType)}" />
+                    <span class="hint">Escribe qué tipo de prenda o confección realizarás para este proyecto personalizado.</span>
+                  </div>
                   <div class="field">
-                    <label class="label" for="orderStyle">Estilo</label>
+                    <label class="label" for="orderStyle">Estilo / Variedad</label>
                     <select class="select" id="orderStyle" name="styleName"></select>
                   </div>
                   <div class="field">
@@ -1143,28 +1175,44 @@
               </div>
 
               <div class="form-section">
+                <div class="form-section-title"><svg><use href="#i-scissors"/></svg>Insumos del taller a utilizar</div>
+                <div id="orderSuppliesArea"></div>
+              </div>
+
+              <div class="form-section" id="orderImagesSection">
+                <div class="form-section-title"><svg><use href="#i-image"/></svg>Imágenes de referencia y resultado final</div>
+                <p class="muted small" style="margin: 0 0 10px">Sube imágenes para visualizar cómo debería verse el resultado final o muestras de diseño.</p>
+                <div class="images-upload-zone" id="imagesDropZone">
+                  <input type="file" id="orderImageInput" accept="image/*" multiple style="display:none" />
+                  <button type="button" class="btn btn-secondary btn-sm" id="btnBrowseImages"><svg><use href="#i-plus"/></svg>Subir imagen</button>
+                  <span class="muted tiny" style="margin-left:8px">o arrastra fotos aquí (PNG, JPG, WebP)</span>
+                </div>
+                <div class="order-images-grid" id="orderImagesGrid"></div>
+              </div>
+
+              <div class="form-section">
                 <div class="form-section-title"><svg><use href="#i-ruler"/></svg>Medidas <span class="muted tiny" style="text-transform:none;letter-spacing:0;font-weight:500">en centímetros</span></div>
                 <div id="measureArea"></div>
-                <div class="field">
-                  <label class="label" for="measureNotes">Notas de medidas o ajustes</label>
-                  <textarea class="textarea" id="measureNotes" name="measureNotes" rows="2" maxlength="1000" placeholder="Ej. caída ancha, doble pinza, ajuste en cintura…">${esc(orderForm.measureNotes)}</textarea>
+                <div class="field" style="margin-top:12px">
+                  <label class="label" for="measureNotes">Notas de medidas o especificaciones</label>
+                  <textarea class="textarea" id="measureNotes" name="measureNotes" rows="2" maxlength="1000" placeholder="Ej. holgura de 3 cm, caída ancha, pinzas dobles…">${esc(orderForm.measureNotes)}</textarea>
                 </div>
               </div>
 
               <div class="form-section">
                 <div class="form-section-title"><svg><use href="#i-scissors"/></svg>Tela, costo y notas</div>
                 <div class="field">
-                  <label class="label" for="orderFabric">Tela y detalles</label>
-                  <textarea class="textarea" id="orderFabric" name="fabricDetails" rows="2" maxlength="1500" placeholder="Tela, color, forro, botones, requerimientos especiales…">${esc(order ? order.fabricDetails : "")}</textarea>
+                  <label class="label" for="orderFabric">Tela y detalles de confección</label>
+                  <textarea class="textarea" id="orderFabric" name="fabricDetails" rows="2" maxlength="1500" placeholder="Tela, color, textura, forro, hilos especiales, requerimientos del cliente…">${esc(order ? order.fabricDetails : "")}</textarea>
                 </div>
                 <div class="form-grid">
                   <div class="field">
-                    <label class="label" for="orderCost">Costo total</label>
+                    <label class="label" for="orderCost">Costo total del proyecto</label>
                     <div class="amount-input"><span class="cur">${esc(s.currency || "$")}</span><input class="input" id="orderCost" name="estimatedCost" type="number" min="0" step="0.01" value="${esc(order ? order.estimatedCost : 0)}" /></div>
                   </div>
                   <div class="field">
-                    <label class="label" for="orderNote">Nota inicial</label>
-                    <input class="input" id="orderNote" name="initialNote" maxlength="2000" placeholder="Ej. se tomó medida con ropa delgada" value="" />
+                    <label class="label" for="orderNote">Nota inicial de bitácora</label>
+                    <input class="input" id="orderNote" name="initialNote" maxlength="2000" placeholder="Ej. recibido abono inicial y muestra de tela" value="" />
                   </div>
                 </div>
               </div>
@@ -1192,6 +1240,9 @@
     openModal(html, { wide: true });
     renderOrderTypeAreas();
     renderOrderMeasureArea();
+    renderOrderSuppliesArea();
+    renderOrderImagesGrid();
+    setupOrderImageUploader();
     renderOrderPreview();
   }
 
@@ -1212,18 +1263,26 @@
     $$("#modal .type-card").forEach((card) => {
       card.classList.toggle("is-active", card.dataset.type === orderForm.type);
     });
+    const customWrap = $("#customTypeWrap");
+    if (customWrap) {
+      customWrap.style.display = orderForm.type === "otro" ? "" : "none";
+      if (orderForm.type === "otro") {
+        const inp = $("#orderCustomType");
+        if (inp && !inp.value && !orderForm.customType) inp.focus();
+      }
+    }
   }
 
   function renderOrderMeasureArea() {
     const area = $("#measureArea");
-    if (!area) return;
+    if (!area || !orderForm) return;
     const type = orderForm.type;
     const spec = G.GARMENTS[type];
-    const values = orderForm.values[type];
+    const values = orderForm.values[type] || {};
 
-    const sliders = spec.fields
+    const sliders = (spec.fields || [])
       .map((f) => {
-        const value = Math.round(num(values[f.key]));
+        const value = Math.round(num(values[f.key] != null ? values[f.key] : f.def));
         const pct = Math.round(((value - f.min) / (f.max - f.min)) * 100);
         return `<div class="measure-row">
           <div class="measure-top"><span class="measure-name">${esc(f.label)}</span><span class="measure-val" data-value-for="${f.key}">${value} cm</span></div>
@@ -1232,9 +1291,9 @@
       })
       .join("");
 
-    const options = spec.options
+    const options = (spec.options || [])
       .map((opt) => {
-        const current = orderForm.options[type][opt.key] || opt.choices[0];
+        const current = (orderForm.options[type] && orderForm.options[type][opt.key]) || opt.choices[0];
         return `<div class="field"><label class="label" for="opt-${type}-${opt.key}">${esc(opt.label)}</label>
           <select class="select" id="opt-${type}-${opt.key}" data-option="${opt.key}">
             ${opt.choices.map((c) => `<option value="${esc(c)}" ${c === current ? "selected" : ""}>${esc(c)}</option>`).join("")}
@@ -1257,6 +1316,173 @@
       ${presetRow}`;
   }
 
+  function renderOrderSuppliesArea() {
+    const area = $("#orderSuppliesArea");
+    if (!area || !orderForm) return;
+    const suppList = supplies();
+    const used = orderForm.supplies || [];
+
+    let totalSuppliesCost = 0;
+    const rows = used
+      .map((usage, idx) => {
+        const s = supplyById(usage.supplyId);
+        const name = s ? s.name : "Insumo eliminado";
+        const unit = s ? s.unit : "unidad";
+        const unitCost = s ? s.unitCost : 0;
+        const currentStock = s ? s.stock : 0;
+        const qty = num(usage.quantity);
+        const lineCost = qty * unitCost;
+        totalSuppliesCost += lineCost;
+        const stockShortage = s && qty > currentStock;
+
+        return `<div class="order-supply-row">
+          <div class="order-supply-meta">
+            <span class="order-supply-name">${esc(name)}</span>
+            <span class="order-supply-stock-info">Stock: <strong>${currentStock} ${esc(unit)}</strong> · Costo: ${money(unitCost)}/${esc(unit)}</span>
+            ${stockShortage ? `<span class="badge-insufficient">Stock insuficiente (${currentStock} disp.)</span>` : ""}
+          </div>
+          <div class="order-supply-qty-field">
+            <label class="tiny muted" for="supplyQty_${idx}">¿Cuánto usarás? (${esc(unit)})</label>
+            <input type="number" class="input input-sm order-supply-qty-input" id="supplyQty_${idx}" data-idx="${idx}" min="0.01" step="any" value="${qty}" required />
+          </div>
+          <div class="order-supply-cost-col">
+            <span class="tiny muted">Costo</span>
+            <strong class="order-supply-cost-val">${money(lineCost)}</strong>
+          </div>
+          <button type="button" class="icon-btn danger" data-action="remove-order-supply" data-idx="${idx}" title="Quitar insumo"><svg><use href="#i-trash"/></svg></button>
+        </div>`;
+      })
+      .join("");
+
+    const availableSupplies = suppList.filter((s) => !used.some((u) => u.supplyId === s.id));
+    const addSection = suppList.length
+      ? `<div class="order-supply-add-bar">
+          <select class="select select-sm" id="orderSupplyPicker">
+            <option value="">-- Seleccionar insumo para agregar --</option>
+            ${availableSupplies
+              .map(
+                (s) =>
+                  `<option value="${esc(s.id)}">${esc(s.name)} (${s.stock} ${esc(s.unit)} disponibles · ${money(s.unitCost)}/${esc(s.unit)})</option>`
+              )
+              .join("")}
+          </select>
+          <button type="button" class="btn btn-secondary btn-sm" data-action="add-order-supply"><svg><use href="#i-plus"/></svg>Agregar insumo</button>
+        </div>`
+      : `<div class="muted small" style="margin-top:6px">No tienes insumos registrados aún. Puedes darlos de alta en la pestaña <strong>Insumos</strong> para vincularlos a tus pedidos.</div>`;
+
+    const totalBar = used.length
+      ? `<div class="order-supply-total-bar">
+          <span>Insumos calculados: <strong style="color:var(--accent)">${money(totalSuppliesCost)}</strong></span>
+          <button type="button" class="btn btn-ghost btn-tiny" data-action="apply-supplies-cost" data-cost="${totalSuppliesCost}" title="Copiar al campo Costo total del pedido">Usar en costo del pedido</button>
+        </div>`
+      : "";
+
+    area.innerHTML = `<div class="order-supplies-list">
+      ${rows || `<p class="muted small" style="margin:4px 0 8px">Selecciona los insumos que ocuparás para este pedido y especifica cuánto usarás.</p>`}
+      ${addSection}
+      ${totalBar}
+    </div>`;
+  }
+
+  function renderOrderImagesGrid() {
+    const grid = $("#orderImagesGrid");
+    if (!grid || !orderForm) return;
+    const imgs = orderForm.images || [];
+    if (!imgs.length) {
+      grid.innerHTML = `<div class="muted tiny" style="margin-top:8px">No hay imágenes agregadas aún. Sube fotos para ver cómo debería quedar el trabajo final.</div>`;
+      return;
+    }
+    grid.innerHTML = imgs
+      .map(
+        (src, idx) => `<div class="image-thumb-card">
+          <img src="${src}" alt="Foto ${idx + 1}" data-action="view-image-full" data-img-src="${esc(src)}" title="Clic para ampliar" />
+          <button type="button" class="image-thumb-del" data-action="remove-order-image" data-idx="${idx}" title="Eliminar imagen"><svg><use href="#i-x"/></svg></button>
+        </div>`
+      )
+      .join("");
+  }
+
+  function setupOrderImageUploader() {
+    const fileInput = $("#orderImageInput");
+    const browseBtn = $("#btnBrowseImages");
+    const dropZone = $("#imagesDropZone");
+    if (!fileInput || !browseBtn || !dropZone) return;
+
+    browseBtn.addEventListener("click", () => fileInput.click());
+
+    fileInput.addEventListener("change", (e) => {
+      if (e.target.files && e.target.files.length) {
+        processOrderImages(Array.from(e.target.files));
+        fileInput.value = "";
+      }
+    });
+
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+        processOrderImages(Array.from(e.dataTransfer.files));
+      }
+    });
+  }
+
+  function processOrderImages(files) {
+    if (!orderForm) return;
+    const imgFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (!imgFiles.length) {
+      toast("Selecciona archivos de imagen válidos (PNG, JPG, WebP).", "warn");
+      return;
+    }
+
+    imgFiles.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const rawUrl = ev.target.result;
+        compressImage(rawUrl, 900, 0.82, (compressed) => {
+          if (!orderForm.images) orderForm.images = [];
+          if (orderForm.images.length >= 20) {
+            toast("Has alcanzado el límite de 20 imágenes por proyecto.", "warn");
+            return;
+          }
+          orderForm.images.push(compressed);
+          renderOrderImagesGrid();
+          renderOrderPreview();
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function compressImage(dataUrl, maxDim, quality, callback) {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width;
+      let h = img.height;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+      callback(canvas.toDataURL("image/jpeg", quality || 0.82));
+    };
+    img.onerror = () => callback(dataUrl);
+    img.src = dataUrl;
+  }
+
   function renderOrderPreview() {
     const svg = $("#previewSvg");
     const caption = $("#previewCaption");
@@ -1264,17 +1490,44 @@
     if (!svg || !orderForm) return;
 
     const type = orderForm.type;
-    const options = Object.assign({}, orderForm.options[type], { estilo: orderForm.style });
-    svg.innerHTML = G.render(type, orderForm.values[type], options, { labels: false });
-    if (caption) caption.textContent = `${G.label(type)}${orderForm.style ? " · " + orderForm.style : ""}`;
+    const hasImages = orderForm.images && orderForm.images.length > 0;
+
+    if (hasImages && type === "otro") {
+      svg.innerHTML = `<div class="preview-img-container">
+        <img src="${orderForm.images[0]}" alt="Vista previa del resultado final" class="preview-final-img" data-action="view-image-full" data-img-src="${esc(orderForm.images[0])}" />
+        ${orderForm.images.length > 1 ? `<span class="preview-img-badge">+${orderForm.images.length - 1} foto${orderForm.images.length > 2 ? "s" : ""}</span>` : ""}
+      </div>`;
+    } else {
+      const options = Object.assign({}, orderForm.options[type], { estilo: orderForm.style });
+      svg.innerHTML = G.render(type, orderForm.values[type], options, { labels: false });
+    }
+
+    const typeDisplay = type === "otro" && orderForm.customType ? orderForm.customType : G.label(type);
+    if (caption) {
+      if (hasImages && type === "otro") {
+        caption.textContent = `Resultado final · ${typeDisplay}`;
+      } else {
+        caption.textContent = `${typeDisplay}${orderForm.style ? " · " + orderForm.style : ""}`;
+      }
+    }
 
     const form = $("#modal form[data-form=order]");
     const cost = form ? num(form.querySelector('[name="estimatedCost"]').value) : 0;
     const deposit = form ? num(form.querySelector('[name="depositPaid"]').value) : 0;
     const saldo = Math.max(0, cost - deposit);
+
+    let totalSuppliesCost = 0;
+    if (orderForm.supplies && orderForm.supplies.length) {
+      orderForm.supplies.forEach((u) => {
+        const s = supplyById(u.supplyId);
+        if (s) totalSuppliesCost += (s.unitCost || 0) * (u.quantity || 0);
+      });
+    }
+
     if (summary) {
-      summary.innerHTML = `<div class="preview-line"><span>Tipo</span><span>${esc(G.label(type))}</span></div>
+      summary.innerHTML = `<div class="preview-line"><span>Tipo</span><span>${esc(typeDisplay)}</span></div>
         <div class="preview-line"><span>Estilo</span><span>${esc(orderForm.style || "—")}</span></div>
+        ${totalSuppliesCost > 0 ? `<div class="preview-line"><span>Insumos</span><span>${esc(money(totalSuppliesCost))}</span></div>` : ""}
         <div class="preview-line"><span>Costo</span><span>${esc(money(cost))}</span></div>
         <div class="preview-line"><span>Anticipo</span><span>${esc(money(deposit))}</span></div>
         <div class="preview-line preview-total"><span>Saldo</span><span>${esc(money(saldo))}</span></div>`;
@@ -1284,11 +1537,17 @@
   function readOrderForm(form) {
     const fd = new FormData(form);
     const type = orderForm.type;
+    const customTypeVal = String(fd.get("customType") || orderForm.customType || "").trim();
+    let pieceName = String(fd.get("pieceName") || "").trim();
+    if (!pieceName && customTypeVal) {
+      pieceName = customTypeVal;
+    }
     return {
       id: orderForm.editingId,
       customerId: String(fd.get("customerId") || ""),
-      pieceName: String(fd.get("pieceName") || "").trim(),
+      pieceName,
       garmentType: type,
+      customType: type === "otro" ? customTypeVal : "",
       styleName: orderForm.style,
       status: orderForm.editingId ? (orderById(orderForm.editingId) || {}).status : "pendiente",
       priority: String(fd.get("priority") || "normal"),
@@ -1303,6 +1562,13 @@
       depositPaid: num(fd.get("depositPaid")),
       dueDate: String(fd.get("dueDate") || ""),
       initialNote: String(fd.get("initialNote") || "").trim(),
+      supplies: (orderForm.supplies || []).map((u) => ({
+        supplyId: u.supplyId,
+        quantity: num(u.quantity),
+        cut: u.cut || "",
+        note: u.note || "",
+      })),
+      images: orderForm.images || [],
     };
   }
 
@@ -1318,6 +1584,8 @@
         <span><span class="step-label">${esc(statusLabel(key))}</span></span>
       </button>`;
     }).join("");
+
+    const typeDisplay = order.garmentType === "otro" && order.customType ? order.customType : G.label(order.garmentType);
 
     const meas = G.measureSummary(order.garmentType, (order.measurements && order.measurements.values) || {});
     const spec = G.GARMENTS[order.garmentType];
@@ -1354,6 +1622,56 @@
           .join("")
       : `<p class="muted small">Sin notas todavía. Agrega la primera abajo.</p>`;
 
+    const suppliesRows = (order.supplies || [])
+      .map((u) => {
+        const s = supplyById(u.supplyId);
+        const name = s ? s.name : "Insumo";
+        const unit = s ? s.unit : "unidad";
+        const cost = s ? s.unitCost : 0;
+        const lineTotal = (u.quantity || 0) * cost;
+        return `<tr>
+          <td><strong>${esc(name)}</strong></td>
+          <td><span class="tag tiny">${s ? esc(s.category) : "—"}</span></td>
+          <td class="num">${u.quantity} ${esc(unit)}</td>
+          <td class="num">${money(cost)}</td>
+          <td class="num"><strong>${money(lineTotal)}</strong></td>
+        </tr>`;
+      })
+      .join("");
+
+    const suppliesCard = suppliesRows
+      ? `<div class="card card-pad" style="margin-top:14px">
+          <div class="form-section-title" style="margin-bottom:12px"><svg><use href="#i-scissors"/></svg>Insumos utilizados en este pedido</div>
+          <div class="table-wrap"><table class="data small">
+            <thead><tr><th>Insumo</th><th>Categoría</th><th class="num">Cantidad</th><th class="num">Costo unitario</th><th class="num">Total</th></tr></thead>
+            <tbody>${suppliesRows}</tbody>
+          </table></div>
+        </div>`
+      : "";
+
+    const imagesGallery = (order.images && order.images.length)
+      ? `<div class="card card-pad" style="margin-top:14px">
+          <div class="form-section-title" style="margin-bottom:10px"><svg><use href="#i-image"/></svg>Resultado final / Referencias (${order.images.length})</div>
+          <div class="detail-images-grid">
+            ${order.images
+              .map(
+                (src, i) => `<button type="button" class="detail-img-thumb" data-action="view-image-full" data-img-src="${esc(src)}" title="Clic para ampliar">
+                  <img src="${src}" alt="Foto ${i + 1}" />
+                </button>`
+              )
+              .join("")}
+          </div>
+        </div>`
+      : "";
+
+    const previewSvgContent = (order.garmentType === "otro" && order.images && order.images.length)
+      ? `<div class="preview-img-container"><img src="${order.images[0]}" alt="Resultado final" class="preview-final-img" data-action="view-image-full" data-img-src="${esc(order.images[0])}" /></div>`
+      : G.render(order.garmentType, order.measurements.values || {}, Object.assign({}, order.measurements.options || {}, { estilo: order.styleName }), { labels: true });
+
+    const previewCaptionText = (order.garmentType === "otro" && order.images && order.images.length)
+      ? `${esc(typeDisplay)} · resultado final previsto`
+      : `${esc(typeDisplay)} · medidas en cm`;
+
     const bal = balance(order);
     const paid = bal <= 0.001;
 
@@ -1361,7 +1679,7 @@
       <div class="modal-head">
         <div style="min-width:0">
           <h2 class="modal-title">${esc(order.pieceName)}</h2>
-          <p class="modal-sub">${esc(customerName(order.customerId))}${customer && customer.phone ? " · " + esc(customer.phone) : ""} · ${esc(G.label(order.garmentType))}${order.styleName ? " · " + esc(order.styleName) : ""}</p>
+          <p class="modal-sub">${esc(customerName(order.customerId))}${customer && customer.phone ? " · " + esc(customer.phone) : ""} · ${esc(typeDisplay)}${order.styleName ? " · " + esc(order.styleName) : ""}</p>
           <div class="detail-head-info">
             ${statusPill(order.status)}
             ${prioTag(order.priority)}
@@ -1386,7 +1704,7 @@
                 <div class="kv-row"><span class="kv-key">Anticipo</span><span class="kv-val">${esc(money(order.depositPaid))}</span></div>
                 <div class="kv-row"><span class="kv-key">Fecha de entrega</span><span class="kv-val">${esc(fmtDate(order.dueDate))} <span class="muted small">${esc(relDue(order.dueDate))}</span></span></div>
                 <div class="kv-row"><span class="kv-key">Creado</span><span class="kv-val">${esc(fmtDate(order.createdAt))}</span></div>
-                <div class="kv-row"><span class="kv-key">Tipo</span><span class="kv-val">${esc(G.label(order.garmentType))}</span></div>
+                <div class="kv-row"><span class="kv-key">Tipo</span><span class="kv-val">${esc(typeDisplay)}</span></div>
                 <div class="kv-row"><span class="kv-key">Estilo</span><span class="kv-val">${esc(order.styleName || "—")}</span></div>
               </div>
               <div class="balance-box ${paid ? "is-paid" : ""}" style="margin-top:14px">
@@ -1395,6 +1713,8 @@
               </div>
               ${order.fabricDetails ? `<div style="margin-top:14px"><div class="kv-key">Tela y detalles</div><p class="small" style="margin:4px 0 0;white-space:pre-wrap">${esc(order.fabricDetails)}</p></div>` : ""}
             </div>
+
+            ${suppliesCard}
 
             <div class="card" style="margin-top:14px">
               <div class="card-head"><div class="card-title"><svg><use href="#i-scissors"/></svg>Bitácora</div><span class="muted tiny">${notes.length} ${plural(notes.length, "nota", "notas")}</span></div>
@@ -1421,14 +1741,15 @@
 
           <div>
             <div class="preview-card">
-              <div class="preview-svg">${G.render(order.garmentType, order.measurements.values || {}, Object.assign({}, order.measurements.options || {}, { estilo: order.styleName }), { labels: true })}</div>
-              <div class="preview-caption">${esc(G.label(order.garmentType))} · medidas en cm</div>
+              <div class="preview-svg">${previewSvgContent}</div>
+              <div class="preview-caption">${previewCaptionText}</div>
             </div>
+            ${imagesGallery}
             <div class="card card-pad" style="margin-top:14px">
               <div class="form-section-title" style="margin-bottom:12px"><svg><use href="#i-ruler"/></svg>Medidas</div>
               ${measHtml}
               ${optsHtml}
-              ${order.measurements.notes ? `<p class="small muted" style="margin:10px 0 0">${esc(order.measurements.notes)}</p>` : ""}
+              ${order.measurements && order.measurements.notes ? `<p class="small muted" style="margin:10px 0 0">${esc(order.measurements.notes)}</p>` : ""}
             </div>
           </div>
         </div>
@@ -1624,6 +1945,65 @@
     const id = el.dataset.id;
 
     switch (action) {
+      case "add-order-supply": {
+        const picker = $("#orderSupplyPicker");
+        if (!picker || !picker.value || !orderForm) break;
+        const suppId = picker.value;
+        if (!orderForm.supplies) orderForm.supplies = [];
+        if (!orderForm.supplies.some((u) => u.supplyId === suppId)) {
+          orderForm.supplies.push({ supplyId: suppId, quantity: 1, cut: "", note: "" });
+          renderOrderSuppliesArea();
+          renderOrderPreview();
+        }
+        break;
+      }
+      case "remove-order-supply": {
+        if (!orderForm || !orderForm.supplies) break;
+        const idx = Number(el.dataset.idx);
+        orderForm.supplies.splice(idx, 1);
+        renderOrderSuppliesArea();
+        renderOrderPreview();
+        break;
+      }
+      case "apply-supplies-cost": {
+        const costInput = $('#modal form[data-form="order"] [name="estimatedCost"]');
+        if (costInput && el.dataset.cost) {
+          costInput.value = Number(el.dataset.cost).toFixed(2);
+          renderOrderPreview();
+          toast("Costo de insumos copiado al costo del pedido.", "info");
+        }
+        break;
+      }
+      case "remove-order-image": {
+        if (!orderForm || !orderForm.images) break;
+        const idx = Number(el.dataset.idx);
+        orderForm.images.splice(idx, 1);
+        renderOrderImagesGrid();
+        renderOrderPreview();
+        break;
+      }
+      case "view-image-full": {
+        const src = el.dataset.imgSrc || (el.tagName === "IMG" ? el.src : "");
+        if (src) viewImageFull(src);
+        break;
+      }
+      case "close-image-modal": {
+        const conf = $("#confirm");
+        if (conf && conf.open) conf.close();
+        break;
+      }
+      case "new-supply":
+        openSupplyForm(null);
+        break;
+      case "edit-supply":
+        openSupplyForm(id);
+        break;
+      case "add-stock-supply":
+        openAddStockModal(id);
+        break;
+      case "delete-supply":
+        await deleteSupply(id);
+        break;
       case "new-order":
         openOrderForm(null, null);
         break;
@@ -1966,6 +2346,42 @@
         return;
       }
 
+      if (kind === "supply") {
+        const supplyId = form.dataset.id;
+        const fd = new FormData(form);
+        state.data = await call("save_supply", {
+          input: {
+            id: supplyId || null,
+            name: String(fd.get("name") || "").trim(),
+            category: String(fd.get("category") || "otro"),
+            unit: String(fd.get("unit") || "unidad").trim(),
+            stock: num(fd.get("stock")),
+            minStock: num(fd.get("minStock")),
+            unitCost: num(fd.get("unitCost")),
+            supplier: String(fd.get("supplier") || "").trim(),
+            notes: String(fd.get("notes") || "").trim(),
+          },
+        });
+        closeModal();
+        render();
+        toast(supplyId ? "Insumo actualizado." : "Insumo creado.", "success");
+        return;
+      }
+
+      if (kind === "add-stock") {
+        const supplyId = form.dataset.id;
+        const fd = new FormData(form);
+        state.data = await call("add_supply_stock", {
+          id: supplyId,
+          quantity: num(fd.get("quantity")),
+          reason: String(fd.get("reason") || "").trim() || null,
+        });
+        closeModal();
+        render();
+        toast("Existencia agregada correctamente.", "success");
+        return;
+      }
+
       if (kind === "order") {
         if (!orderForm) return;
         const payload = readOrderForm(form);
@@ -1996,6 +2412,251 @@
     }
   }
 
+  // ─────────────────────────── Vista: Insumos ───────────────────────────
+
+  function viewInsumos() {
+    const suppList = supplies();
+    const q = (state.supplyQuery || "").trim().toLowerCase();
+    const cat = state.supplyCategory || "todas";
+
+    const filtered = suppList.filter((s) => {
+      if (cat !== "todas" && s.category !== cat) return false;
+      if (q && !`${s.name} ${s.category} ${s.unit} ${s.supplier || ""} ${s.notes || ""}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+
+    const lowStock = suppList.filter((s) => s.stock <= s.minStock && s.stock > 0);
+    const outStock = suppList.filter((s) => s.stock <= 0);
+    const totalInventoryValue = suppList.reduce((sum, s) => sum + Math.max(0, s.stock) * (s.unitCost || 0), 0);
+
+    const categories = ["todas", "tela", "hilo", "boton", "cierre", "elastico", "entretela", "otro"];
+    const categoryOptions = categories
+      .map((c) => `<option value="${c}" ${cat === c ? "selected" : ""}>${c === "todas" ? "Todas las categorías" : c.charAt(0).toUpperCase() + c.slice(1)}</option>`)
+      .join("");
+
+    const rows = filtered
+      .map((s) => {
+        const isOut = s.stock <= 0;
+        const isLow = s.stock <= s.minStock && !isOut;
+        const stockStatusClass = isOut ? "is-out" : isLow ? "is-low" : "is-ok";
+        const stockStatusText = isOut ? "Agotado" : isLow ? "Stock bajo" : "Disponible";
+        const totalValue = Math.max(0, s.stock) * (s.unitCost || 0);
+
+        return `<tr>
+          <td>
+            <div class="cell-main">${esc(s.name)}</div>
+            <div class="cell-sub">${esc(s.supplier ? "Proveedor: " + s.supplier : s.notes || "Sin notas")}</div>
+          </td>
+          <td><span class="tag">${esc(s.category)}</span></td>
+          <td>
+            <div class="stock-pill ${stockStatusClass}">
+              <span class="stock-dot"></span>
+              <strong>${s.stock}</strong> <span class="muted tiny">${esc(s.unit)}</span>
+              <span class="stock-label tiny">(${stockStatusText})</span>
+            </div>
+          </td>
+          <td class="num">${s.minStock} <span class="muted tiny">${esc(s.unit)}</span></td>
+          <td class="num">${money(s.unitCost)}</td>
+          <td class="num"><strong>${money(totalValue)}</strong></td>
+          <td>
+            <div class="row-actions">
+              <button class="icon-btn" type="button" title="Entrada de mercancía / Ajuste" data-action="add-stock-supply" data-id="${esc(s.id)}"><svg><use href="#i-plus"/></svg></button>
+              <button class="icon-btn" type="button" title="Editar insumo" data-action="edit-supply" data-id="${esc(s.id)}"><svg><use href="#i-pencil"/></svg></button>
+              <button class="icon-btn danger" type="button" title="Eliminar insumo" data-action="delete-supply" data-id="${esc(s.id)}"><svg><use href="#i-trash"/></svg></button>
+            </div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+
+    return `<div class="page">
+      ${pageHead(
+        "Insumos",
+        "Inventario del taller",
+        `${suppList.length} ${plural(suppList.length, "insumo registrado", "insumos registrados")} · ${lowStock.length} con stock bajo · ${outStock.length} agotados`,
+        `<button class="btn btn-primary" data-action="new-supply"><svg><use href="#i-plus"/></svg>Nuevo insumo</button>`
+      )}
+
+      <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 16px;">
+        <div class="stat-card">
+          <div class="stat-label">Total insumos</div>
+          <div class="stat-value">${suppList.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Con stock bajo</div>
+          <div class="stat-value" style="color:var(--warn)">${lowStock.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Agotados</div>
+          <div class="stat-value" style="color:var(--bad)">${outStock.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Valor del inventario</div>
+          <div class="stat-value" style="color:var(--good)">${money(totalInventoryValue)}</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="search">
+          <svg><use href="#i-search"/></svg>
+          <input class="input" id="supplySearch" type="search" placeholder="Buscar por insumo, categoría o proveedor…" value="${esc(state.supplyQuery || "")}" />
+        </div>
+        <select class="select" id="supplyCategoryFilter" style="width:200px">${categoryOptions}</select>
+        <span class="muted small">${filtered.length} ${plural(filtered.length, "resultado", "resultados")}</span>
+      </div>
+
+      <div class="card">
+        ${
+          filtered.length
+            ? `<div class="table-wrap"><table class="data">
+                <thead><tr><th>Insumo</th><th>Categoría</th><th>Existencia</th><th class="num">Mínimo</th><th class="num">Costo unitario</th><th class="num">Valor</th><th></th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table></div>`
+            : emptyBox(
+                "i-scissors",
+                suppList.length ? "Ningún insumo coincide con el filtro" : "Aún no hay insumos en el taller",
+                suppList.length ? "Prueba cambiando la búsqueda o categoría." : "Registra telas, botones, hilos y cierres para controlar su existencia y usarlos en pedidos.",
+                `<button class="btn btn-primary btn-sm" data-action="new-supply">Crear insumo</button>`
+              )
+        }
+      </div>
+    </div>`;
+  }
+
+  function openSupplyForm(supplyId) {
+    const s = supplyId ? supplyById(supplyId) : null;
+    const isEdit = Boolean(s);
+    const catList = ["tela", "hilo", "boton", "cierre", "elastico", "entretela", "otro"];
+    const unitList = ["yarda", "metro", "unidad", "cono", "rollo", "par", "otro"];
+
+    const html = `<form data-form="supply" data-id="${esc(supplyId || "")}" autocomplete="off">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <h2 class="modal-title">${isEdit ? "Editar insumo" : "Nuevo insumo"}</h2>
+            <p class="modal-sub">${isEdit ? "Actualiza las existencias, costos o detalles." : "Registra tela, hilo, botones u otros materiales del taller."}</p>
+          </div>
+          <button class="icon-btn modal-close" type="button" data-action="close-modal" aria-label="Cerrar"><svg><use href="#i-x"/></svg></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="field full">
+              <label class="label" for="supName">Nombre del insumo <span style="color:var(--accent)">*</span></label>
+              <input class="input" id="supName" name="name" maxlength="120" required placeholder="Ej. Tela Lino Blanco, Hilo Poliéster Negro, Botón Nácar 18L" value="${esc(s ? s.name : "")}" />
+            </div>
+            <div class="field">
+              <label class="label" for="supCategory">Categoría</label>
+              <select class="select" id="supCategory" name="category">
+                ${catList.map((c) => `<option value="${c}" ${s && s.category === c ? "selected" : ""}>${c.charAt(0).toUpperCase() + c.slice(1)}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label class="label" for="supUnit">Unidad de medida</label>
+              <select class="select" id="supUnit" name="unit">
+                ${unitList.map((u) => `<option value="${u}" ${s && s.unit === u ? "selected" : ""}>${u.charAt(0).toUpperCase() + u.slice(1)}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label class="label" for="supStock">Existencia actual</label>
+              <input class="input" id="supStock" name="stock" type="number" step="any" min="0" required value="${esc(s ? s.stock : 0)}" />
+            </div>
+            <div class="field">
+              <label class="label" for="supMinStock">Alerta de stock mínimo</label>
+              <input class="input" id="supMinStock" name="minStock" type="number" step="any" min="0" required value="${esc(s ? s.minStock : 5)}" />
+            </div>
+            <div class="field">
+              <label class="label" for="supUnitCost">Costo por unidad (${esc(data().settings.currency || "$")})</label>
+              <input class="input" id="supUnitCost" name="unitCost" type="number" step="0.01" min="0" value="${esc(s ? s.unitCost : 0)}" />
+            </div>
+            <div class="field">
+              <label class="label" for="supSupplier">Proveedor</label>
+              <input class="input" id="supSupplier" name="supplier" maxlength="160" placeholder="Ej. Almacén Textil Central" value="${esc(s ? s.supplier || "" : "")}" />
+            </div>
+            <div class="field full">
+              <label class="label" for="supNotes">Notas adicionales</label>
+              <textarea class="textarea" id="supNotes" name="notes" rows="2" maxlength="1000" placeholder="Ubicación en taller, código de color, grosor…">${esc(s ? s.notes || "" : "")}</textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" type="button" data-action="close-modal">Cancelar</button>
+          <button class="btn btn-primary" type="submit"><svg><use href="#i-check"/></svg>${isEdit ? "Guardar cambios" : "Crear insumo"}</button>
+        </div>
+      </div>
+    </form>`;
+
+    openModal(html);
+  }
+
+  function openAddStockModal(supplyId) {
+    const s = supplyById(supplyId);
+    if (!s) return;
+    const html = `<form data-form="add-stock" data-id="${esc(s.id)}" autocomplete="off">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <h2 class="modal-title">Entrada de mercancía / existencias</h2>
+            <p class="modal-sub">Insumo: <strong>${esc(s.name)}</strong> · Existencia actual: ${s.stock} ${esc(s.unit)}</p>
+          </div>
+          <button class="icon-btn modal-close" type="button" data-action="close-modal" aria-label="Cerrar"><svg><use href="#i-x"/></svg></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="field full">
+              <label class="label" for="stockQty">Cantidad a ingresar (${esc(s.unit)}) <span style="color:var(--accent)">*</span></label>
+              <input class="input" id="stockQty" name="quantity" type="number" step="any" min="0.01" required placeholder="Ej. 10" autofocus />
+            </div>
+            <div class="field full">
+              <label class="label" for="stockReason">Motivo o referencia</label>
+              <input class="input" id="stockReason" name="reason" maxlength="160" placeholder="Ej. Compra factura #4120 / reposición" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" type="button" data-action="close-modal">Cancelar</button>
+          <button class="btn btn-primary" type="submit"><svg><use href="#i-plus"/></svg>Agregar existencia</button>
+        </div>
+      </div>
+    </form>`;
+    openModal(html);
+  }
+
+  async function deleteSupply(id) {
+    const s = supplyById(id);
+    if (!s) return;
+    const ok = await confirmDialog({
+      title: `¿Eliminar insumo «${s.name}»?`,
+      sub: "Si este insumo está asignado a pedidos activos, debes quitar el consumo de esos pedidos antes de eliminarlo.",
+      confirmText: "Eliminar insumo",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      state.data = await call("delete_supply", { id });
+      render();
+      toast("Insumo eliminado.", "success");
+    } catch (e) {
+      /* el toast de error ya fue emitido por call() */
+    }
+  }
+
+  function viewImageFull(src) {
+    const html = `<div class="modal-card modal-image-card">
+      <div class="modal-head" style="border:none;padding-bottom:0">
+        <h3 class="modal-title" style="font-size:15px">Vista previa de imagen</h3>
+        <button class="icon-btn modal-close" type="button" data-action="close-image-modal" aria-label="Cerrar"><svg><use href="#i-x"/></svg></button>
+      </div>
+      <div class="modal-body" style="padding:10px 16px 16px;text-align:center">
+        <img src="${esc(src)}" alt="Resultado final" style="max-width:100%;max-height:75vh;object-fit:contain;border-radius:8px;box-shadow:var(--shadow-md)" />
+      </div>
+    </div>`;
+    const dlg = $("#confirm");
+    if (dlg) {
+      dlg.innerHTML = html;
+      dlg.showModal();
+    }
+  }
+
   // ─────────────────────────── Imprimir ficha ───────────────────────────
 
   function printOrder(orderId) {
@@ -2003,6 +2664,7 @@
     if (!order) return;
     const customer = customerById(order.customerId);
     const s = data().settings;
+    const typeDisplay = order.garmentType === "otro" && order.customType ? order.customType : G.label(order.garmentType);
     const meas = G.measureSummary(order.garmentType, order.measurements.values || {});
     const spec = G.GARMENTS[order.garmentType];
     const opts = spec
@@ -2013,6 +2675,28 @@
     const optRows = opts.map((o) => `<tr><td>${esc(o.label)}</td><td>${esc(o.value)}</td></tr>`).join("");
     const notes = (order.notes || []).slice().sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
 
+    const suppliesPrintRows = (order.supplies || [])
+      .map((u) => {
+        const sup = supplyById(u.supplyId);
+        const name = sup ? sup.name : "Insumo";
+        const unit = sup ? sup.unit : "unid.";
+        const cost = sup ? sup.unitCost : 0;
+        return `<tr><td>${esc(name)}</td><td>${sup ? esc(sup.category) : "—"}</td><td>${u.quantity} ${esc(unit)}</td><td>${money(cost)}</td><td>${money(u.quantity * cost)}</td></tr>`;
+      })
+      .join("");
+
+    const suppliesPrintSection = suppliesPrintRows
+      ? `<h3 style="font-size:13px;margin:14px 0 4px">Insumos utilizados</h3>
+         <table class="print-table"><thead><tr><th>Insumo</th><th>Categoría</th><th>Cantidad</th><th>Costo unit.</th><th>Total</th></tr></thead><tbody>${suppliesPrintRows}</tbody></table>`
+      : "";
+
+    const imagesPrintSection = (order.images && order.images.length)
+      ? `<h3 style="font-size:13px;margin:14px 0 4px">Resultado final previsto / Referencias</h3>
+         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px">
+           ${order.images.map((src) => `<img src="${src}" style="width:120px;height:120px;object-fit:cover;border:1px solid #ccc;border-radius:4px" />`).join("")}
+         </div>`
+      : "";
+
     $("#printRoot").innerHTML = `<div class="print-sheet">
       <h1>${esc(s.workshopName || "Taller de costura")}</h1>
       <p class="print-sub">Ficha de pedido · ${esc(fmtDateLong(todayStr()))}</p>
@@ -2021,7 +2705,7 @@
         <div><span>Cliente</span><strong>${esc(customer ? customer.fullName : customerName(order.customerId))}</strong></div>
         <div><span>Teléfono</span><strong>${esc(customer && customer.phone ? customer.phone : "—")}</strong></div>
         <div><span>Prenda</span><strong>${esc(order.pieceName)}</strong></div>
-        <div><span>Tipo / estilo</span><strong>${esc(G.label(order.garmentType))}${order.styleName ? " · " + esc(order.styleName) : ""}</strong></div>
+        <div><span>Tipo / estilo</span><strong>${esc(typeDisplay)}${order.styleName ? " · " + esc(order.styleName) : ""}</strong></div>
         <div><span>Entrega</span><strong>${esc(fmtDate(order.dueDate))}</strong></div>
         <div><span>Estado</span><strong>${esc(statusLabel(order.status))}</strong></div>
         <div><span>Costo</span><strong>${esc(money(order.estimatedCost))}</strong></div>
@@ -2034,6 +2718,8 @@
       <table class="print-table"><tbody>${rows}${optRows}</tbody></table>
       ${order.measurements.notes ? `<p class="print-notes"><strong>Notas de medidas:</strong> ${esc(order.measurements.notes)}</p>` : ""}
       ${order.fabricDetails ? `<p class="print-notes"><strong>Tela y detalles:</strong> ${esc(order.fabricDetails)}</p>` : ""}
+      ${suppliesPrintSection}
+      ${imagesPrintSection}
       <h3 style="font-size:13px;margin:14px 0 4px">Bitácora</h3>
       <table class="print-table"><thead><tr><th>Fecha</th><th>Etapa</th><th>Detalle</th></tr></thead><tbody>
         ${notes.map((n) => `<tr><td>${esc(fmtDateTime(n.timestamp))}</td><td>${esc(stageLabel(n.stage))}</td><td>${esc(n.content)}</td></tr>`).join("")}
@@ -2100,6 +2786,41 @@
         return;
       }
 
+      if (target.classList.contains("order-supply-qty-input") && orderForm) {
+        const idx = Number(target.dataset.idx);
+        if (orderForm.supplies && orderForm.supplies[idx]) {
+          orderForm.supplies[idx].quantity = num(target.value);
+          const s = supplyById(orderForm.supplies[idx].supplyId);
+          const row = target.closest(".order-supply-row");
+          if (row && s) {
+            const valEl = row.querySelector(".order-supply-cost-val");
+            if (valEl) valEl.textContent = money(num(target.value) * s.unitCost);
+          }
+          renderOrderPreview();
+        }
+        return;
+      }
+
+      if (target.id === "orderCustomType" && orderForm) {
+        orderForm.customType = target.value;
+        renderOrderPreview();
+        return;
+      }
+
+      if (target.id === "supplySearch") {
+        state.supplyQuery = target.value;
+        const pos = target.selectionStart;
+        render();
+        const again = $("#supplySearch");
+        if (again) {
+          again.focus();
+          try {
+            again.setSelectionRange(pos, pos);
+          } catch (err) {}
+        }
+        return;
+      }
+
       const slider = target.closest("[data-measure]");
       if (slider && orderForm) {
         const key = slider.dataset.measure;
@@ -2124,6 +2845,12 @@
 
     document.addEventListener("change", (e) => {
       const target = e.target;
+      if (target.id === "supplyCategoryFilter") {
+        state.supplyCategory = target.value;
+        render();
+        return;
+      }
+
       if (target.id === "orderStatusFilter") {
         state.orderStatus = target.value;
         render();

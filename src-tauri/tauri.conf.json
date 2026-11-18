@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Costura",
+  "productName": "Taller Costura",
   "version": "0.1.0",
-  "identifier": "com.costura.taller",
+  "identifier": "JLRDev.TallerCostura",
   "build": {
     "frontendDist": "../src"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Costura — Gestión de taller",
+        "title": "Costura \u2014 Gesti\u00f3n de taller",
         "width": 1360,
         "height": 860,
         "minWidth": 1040,
@@ -25,8 +25,14 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all",
-    "icon": ["icons/icon.ico", "icons/icon.png"]
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "publisher": "CN=1D206152-7DEC-4E64-832B-010FB525F11D",
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ]
   }
 }

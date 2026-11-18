@@ -18,10 +18,9 @@ la app con WebView2, sin servidor ni navegador externo.
 - **Inicio**: resumen del taller, entregas próximas, agenda del día y pedidos urgentes.
 - **Clientes**: alta, edición y borrado; teléfono, correo, dirección y notas; historial
   de pedidos y saldo por cobrar.
-- **Pedidos**: prenda, tipo (camisa, pantalón, vestido o bolso), estilo, prioridad,
-  fecha de entrega, tela, costo, anticipo y notas.
-- **Medidas**: formulario propio para cada tipo de prenda, con deslizadores en
-  centímetros y presets de corte (recto, baggy, skinny, acampanado, cargo).
+- **Pedidos**: prenda, tipo (camisa, pantalón, vestido, bolso u **otro proyecto personalizado**), estilo, prioridad, fecha de entrega, tela, costo, anticipo, **consumo de insumos con cálculo de costo** y **fotos del resultado final**.
+- **Insumos**: control completo de inventario (tela, hilo, botones, cierres, elástico, entretela y otros), existencias, alertas de stock bajo o agotado, entradas de mercancía y descuento automático según el consumo en cada pedido.
+- **Medidas e imágenes**: formulario adaptable según el tipo de prenda, con medidas en centímetros, dibujo de patrón en SVG y **galería de imágenes de referencia del resultado final**.
 - **Vista previa**: dibujo del patrón en SVG que cambia con las medidas y el estilo.
 - **Bitácora**: etapas del pedido (pendiente, corte, confección, prueba, terminado,
   entregado) y notas fechadas.

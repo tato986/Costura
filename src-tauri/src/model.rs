@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 pub const DATA_VERSION: u32 = 1;
 
-pub const GARMENT_TYPES: [&str; 4] = ["camisa", "pantalon", "vestido", "bolso"];
+pub const GARMENT_TYPES: [&str; 5] = ["camisa", "pantalon", "vestido", "bolso", "otro"];
 pub const SUPPLY_CATEGORIES: [&str; 7] = [
     "tela",
     "hilo",
@@ -141,6 +141,7 @@ pub struct Order {
     pub customer_id: String,
     pub piece_name: String,
     pub garment_type: String,
+    pub custom_type: String,
     pub style_name: String,
     pub status: String,
     pub priority: String,
@@ -153,6 +154,7 @@ pub struct Order {
     pub created_at: String,
     pub notes: Vec<OrderNote>,
     pub supplies: Vec<SupplyUsage>,
+    pub images: Vec<String>,
 }
 
 impl Default for Order {
@@ -162,6 +164,7 @@ impl Default for Order {
             customer_id: String::new(),
             piece_name: String::new(),
             garment_type: "camisa".to_string(),
+            custom_type: String::new(),
             style_name: String::new(),
             status: "pendiente".to_string(),
             priority: "normal".to_string(),
@@ -174,6 +177,7 @@ impl Default for Order {
             created_at: String::new(),
             notes: Vec::new(),
             supplies: Vec::new(),
+            images: Vec::new(),
         }
     }
 }
@@ -330,6 +334,7 @@ pub struct OrderInput {
     pub customer_id: String,
     pub piece_name: String,
     pub garment_type: String,
+    pub custom_type: String,
     pub style_name: String,
     pub status: Option<String>,
     pub priority: String,
@@ -340,6 +345,7 @@ pub struct OrderInput {
     pub due_date: String,
     pub initial_note: String,
     pub supplies: Vec<SupplyUsage>,
+    pub images: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -543,11 +549,21 @@ pub fn normalize_order(input: &OrderInput, data: &AppData) -> Result<Order, Stri
         .options
         .retain(|key, value| !key.trim().is_empty() && !value.trim().is_empty());
 
+    let custom_type = clean(&input.custom_type);
+    let images = input
+        .images
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .take(30)
+        .collect::<Vec<_>>();
+
     Ok(Order {
         id: input.id.clone().unwrap_or_default(),
         customer_id: input.customer_id.clone(),
         piece_name,
         garment_type,
+        custom_type,
         style_name,
         status,
         priority,
@@ -560,6 +576,7 @@ pub fn normalize_order(input: &OrderInput, data: &AppData) -> Result<Order, Stri
         created_at: String::new(),
         notes: Vec::new(),
         supplies: input.supplies.clone(),
+        images,
     })
 }
 

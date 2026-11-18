@@ -1,0 +1,27 @@
+{
+  "name": "costura-taller",
+  "version": "0.1.0",
+  "description": "Gestor local de taller de costura para Windows",
+  "private": true,
+  "main": "src/index.html",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:msix": "tauri build --bundles msix",
+    "build:nsis": "tauri build --bundles nsis",
+    "tauri": "tauri"
+  },
+  "keywords": [
+    "tauri",
+    "desktop",
+    "costura",
+    "taller",
+    "windows",
+    "gestor-local"
+  ],
+  "author": "Costura",
+  "license": "MIT",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

@@ -220,6 +220,7 @@ pub fn save_order(state: Db<'_>, input: OrderInput) -> Result<AppData, String> {
                     existing.customer_id = order.customer_id;
                     existing.piece_name = order.piece_name.clone();
                     existing.garment_type = order.garment_type;
+                    existing.custom_type = order.custom_type;
                     existing.style_name = order.style_name;
                     existing.status = order.status.clone();
                     existing.priority = order.priority;
@@ -229,6 +230,7 @@ pub fn save_order(state: Db<'_>, input: OrderInput) -> Result<AppData, String> {
                     existing.deposit_paid = order.deposit_paid;
                     existing.due_date = order.due_date;
                     existing.supplies = order.supplies.clone();
+                    existing.images = order.images;
 
                     if existing.status == "entregado" && !was_delivered {
                         existing.delivery_date = Some(today());
@@ -494,12 +496,10 @@ pub fn save_supply(state: Db<'_>, input: SupplyInput) -> Result<AppData, String>
                     .position(|s| s.id == id)
                     .ok_or_else(|| "El insumo ya no existe.".to_string())?;
 
-                let mut delta = 0.0;
-                let mut supply_id = String::new();
-                {
+                let (delta, supply_id) = {
                     let existing = &mut app.data.supplies[index];
-                    delta = supply.stock - existing.stock;
-                    supply_id = existing.id.clone();
+                    let delta = supply.stock - existing.stock;
+                    let supply_id = existing.id.clone();
                     existing.name = supply.name;
                     existing.category = supply.category;
                     existing.unit = supply.unit;
@@ -508,7 +508,8 @@ pub fn save_supply(state: Db<'_>, input: SupplyInput) -> Result<AppData, String>
                     existing.unit_cost = supply.unit_cost;
                     existing.supplier = supply.supplier;
                     existing.notes = supply.notes;
-                }
+                    (delta, supply_id)
+                };
 
                 if delta.abs() > 1e-9 {
                     app.data.movements.push(SupplyMovement {
@@ -913,6 +914,7 @@ pub fn demo_data() -> AppData {
                     content: "Patrón trazado y piezas delanteras cortadas.".into(),
                 },
             ],
+            ..Default::default()
         },
         Order {
             id: new_id(),
@@ -935,6 +937,7 @@ pub fn demo_data() -> AppData {
                 stage: "costura".into(),
                 content: "Cremallera instalada y unión de entrepierna lista.".into(),
             }],
+            ..Default::default()
         },
         Order {
             id: new_id(),
@@ -957,6 +960,7 @@ pub fn demo_data() -> AppData {
                 stage: "prueba".into(),
                 content: "Primera prueba con tacones; ajustar 2 cm en cintura.".into(),
             }],
+            ..Default::default()
         },
         Order {
             id: new_id(),
@@ -974,6 +978,7 @@ pub fn demo_data() -> AppData {
             delivery_date: None,
             created_at: created(-2),
             notes: vec![],
+            ..Default::default()
         },
         Order {
             id: new_id(),
@@ -1013,6 +1018,7 @@ pub fn demo_data() -> AppData {
                 stage: "terminado".into(),
                 content: "Lote planchado y empacado para entrega.".into(),
             }],
+            ..Default::default()
         },
         Order {
             id: new_id(),
@@ -1048,6 +1054,7 @@ pub fn demo_data() -> AppData {
                 stage: "entrega".into(),
                 content: "Entregado y probado sin ajustes.".into(),
             }],
+            ..Default::default()
         },
     ];
 
@@ -1127,9 +1134,47 @@ pub fn demo_data() -> AppData {
             owner_name: "Elena".into(),
             currency: "$".into(),
             default_due_days: 7,
+            backup_dir: String::new(),
         },
         customers: vec![maria, carlos, ana, colegio],
         orders: ordenes,
         reminders,
+        supplies: vec![
+            Supply {
+                id: "s1".into(),
+                name: "Tela de algodón".into(),
+                category: "tela".into(),
+                unit: "yarda".into(),
+                stock: 15.0,
+                min_stock: 5.0,
+                unit_cost: 8.5,
+                supplier: "Mercería del centro".into(),
+                notes: "Tela blanca 100% algodón".into(),
+                created_at: now_iso(),
+            },
+            Supply {
+                id: "s2".into(),
+                name: "Hilo de polyester".into(),
+                category: "hilo".into(),
+                unit: "cono".into(),
+                stock: 10.0,
+                min_stock: 3.0,
+                unit_cost: 2.0,
+                supplier: "Proveedor textil".into(),
+                notes: "Cono negro 40/3".into(),
+                created_at: now_iso(),
+            },
+        ],
+        movements: vec![
+            SupplyMovement {
+                id: new_id(),
+                supply_id: "s1".into(),
+                timestamp: now_iso(),
+                delta: 15.0,
+                kind: "entrada".into(),
+                reason: "Existencia inicial".into(),
+                order_id: None,
+            },
+        ],
     }
 }
