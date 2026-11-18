@@ -623,6 +623,7 @@ pub fn save_settings(
     owner_name: String,
     currency: String,
     default_due_days: i64,
+    language: Option<String>,
 ) -> Result<AppData, String> {
     let name = workshop_name.trim().to_string();
     if name.is_empty() || name.chars().count() > 80 {
@@ -635,12 +636,17 @@ pub fn save_settings(
     if currency.chars().count() > 6 {
         return Err("El símbolo de moneda es demasiado largo.".to_string());
     }
+    let lang = language
+        .map(|l| l.trim().to_lowercase())
+        .filter(|l| matches!(l.as_str(), "es" | "en" | "pt"))
+        .unwrap_or_else(|| "es".to_string());
 
     let (_, data) = mutate(&state, |app| {
         app.data.settings.workshop_name = name;
         app.data.settings.owner_name = owner_name.trim().to_string();
         app.data.settings.currency = currency;
         app.data.settings.default_due_days = default_due_days;
+        app.data.settings.language = lang;
         Ok(())
     })?;
     Ok(data)
@@ -1135,6 +1141,7 @@ pub fn demo_data() -> AppData {
             currency: "$".into(),
             default_due_days: 7,
             backup_dir: String::new(),
+            language: "es".into(),
         },
         customers: vec![maria, carlos, ana, colegio],
         orders: ordenes,

@@ -92,6 +92,7 @@
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const n = (v, fallback) => (typeof v === "number" && isFinite(v) ? v : fallback);
+  const tg = (s) => (window.Costura && window.Costura.i18n && window.Costura.i18n.tg ? window.Costura.i18n.tg(s) : s);
 
   function defaultValues(kind) {
     const spec = GARMENTS[kind];
@@ -111,12 +112,12 @@
     if (!spec) return [];
     return spec.fields
       .filter((f) => typeof values[f.key] === "number")
-      .map((f) => ({ key: f.key, label: f.label, value: values[f.key] }));
+      .map((f) => ({ key: f.key, label: tg(f.label), value: values[f.key] }));
   }
 
   // ── piezas de dibujo ─────────────────────────────────────────────
   function svgWrap(inner, w, h) {
-    return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Vista previa del patrón">${inner}</svg>`;
+    return `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Pattern preview">${inner}</svg>`;
   }
 
   function hLabel(x1, x2, y, text) {
@@ -126,7 +127,7 @@
       <line x1="${x1}" y1="${y - 3}" x2="${x1}" y2="${y + 3}" stroke-width="0.9" opacity=".38"/>
       <line x1="${x2}" y1="${y - 3}" x2="${x2}" y2="${y + 3}" stroke-width="0.9" opacity=".38"/>
     </g>
-    <text x="${mid}" y="${y - 4}" text-anchor="middle" font-size="8.5" fill="currentColor" opacity=".6" stroke="none">${text}</text>`;
+    <text x="${mid}" y="${y - 4}" text-anchor="middle" font-size="8.5" fill="currentColor" opacity=".6" stroke="none">${tg(text)}</text>`;
   }
 
   function vLabel(x, y1, y2, text) {
@@ -136,7 +137,7 @@
       <line x1="${x - 3}" y1="${y1}" x2="${x + 3}" y2="${y1}" stroke-width="0.9" opacity=".38"/>
       <line x1="${x - 3}" y1="${y2}" x2="${x + 3}" y2="${y2}" stroke-width="0.9" opacity=".38"/>
     </g>
-    <text x="${x + 5}" y="${mid + 3}" font-size="8.5" fill="currentColor" opacity=".6" stroke="none">${text}</text>`;
+    <text x="${x + 5}" y="${mid + 3}" font-size="8.5" fill="currentColor" opacity=".6" stroke="none">${tg(text)}</text>`;
   }
 
   function buttons(cx, y1, y2, count) {
@@ -469,7 +470,7 @@
         <line x1="${left + 15}" y1="${bottom - 20}" x2="${right - 15}" y2="${bottom - 20}" stroke="currentColor" stroke-width="0.9" opacity=".4"/>
         <circle cx="120" cy="170" r="28" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="1.1" opacity=".5"/>
         <path d="M 120 152 L 120 188 M 102 170 L 138 170" stroke="currentColor" stroke-width="1" opacity=".35"/>
-        <text x="120" y="174" text-anchor="middle" font-size="8" fill="currentColor" opacity=".7" font-weight="600" stroke="none">A MEDIDA</text>
+        <text x="120" y="174" text-anchor="middle" font-size="8" fill="currentColor" opacity=".7" font-weight="600" stroke="none">${tg("A MEDIDA")}</text>
       </g>
       ${labels}`,
       240,
@@ -497,7 +498,7 @@
     defaultOptions,
     measureSummary,
     render: garmentSvg,
-    label: (kind) => (GARMENTS[kind] ? GARMENTS[kind].label : kind),
+    label: (kind) => (GARMENTS[kind] ? tg(GARMENTS[kind].label) : kind),
     styles: (kind) => (GARMENTS[kind] ? GARMENTS[kind].styles : []),
     presets: (kind) => (GARMENTS[kind] && GARMENTS[kind].presets) || null,
   };

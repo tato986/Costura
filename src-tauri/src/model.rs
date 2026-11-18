@@ -48,6 +48,7 @@ pub struct Settings {
     pub currency: String,
     pub default_due_days: i64,
     pub backup_dir: String,
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -58,6 +59,7 @@ impl Default for Settings {
             currency: "$".to_string(),
             default_due_days: 7,
             backup_dir: String::new(),
+            language: "es".to_string(),
         }
     }
 }

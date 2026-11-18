@@ -52,25 +52,25 @@
 
       <nav class="nav" aria-label="Secciones">
         <button class="nav-item is-active" data-view="inicio" type="button">
-          <span class="nav-icon"><svg><use href="#i-home"/></svg></span><span>Inicio</span>
+          <span class="nav-icon"><svg><use href="#i-home"/></svg></span><span data-i18n="nav.home">Inicio</span>
         </button>
         <button class="nav-item" data-view="pedidos" type="button">
-          <span class="nav-icon"><svg><use href="#i-shirt"/></svg></span><span>Pedidos</span>
+          <span class="nav-icon"><svg><use href="#i-shirt"/></svg></span><span data-i18n="nav.orders">Pedidos</span>
           <span class="nav-badge" id="navOrdersBadge" hidden></span>
         </button>
         <button class="nav-item" data-view="clientes" type="button">
-          <span class="nav-icon"><svg><use href="#i-users"/></svg></span><span>Clientes</span>
+          <span class="nav-icon"><svg><use href="#i-users"/></svg></span><span data-i18n="nav.clients">Clientes</span>
         </button>
         <button class="nav-item" data-view="agenda" type="button">
-          <span class="nav-icon"><svg><use href="#i-calendar"/></svg></span><span>Agenda</span>
+          <span class="nav-icon"><svg><use href="#i-calendar"/></svg></span><span data-i18n="nav.agenda">Agenda</span>
           <span class="nav-badge" id="navAgendaBadge" hidden></span>
         </button>
         <button class="nav-item" data-view="insumos" type="button">
-          <span class="nav-icon"><svg><use href="#i-scissors"/></svg></span><span>Insumos</span>
+          <span class="nav-icon"><svg><use href="#i-scissors"/></svg></span><span data-i18n="nav.supplies">Insumos</span>
           <span class="nav-badge" id="navSuppliesBadge" hidden></span>
         </button>
         <button class="nav-item" data-view="ajustes" type="button">
-          <span class="nav-icon"><svg><use href="#i-settings"/></svg></span><span>Ajustes</span>
+          <span class="nav-icon"><svg><use href="#i-settings"/></svg></span><span data-i18n="nav.settings">Ajustes</span>
         </button>
       </nav>
 
@@ -81,7 +81,7 @@
         </button>
         <div class="sidebar-note">
           <svg class="mini"><use href="#i-database"/></svg>
-          <span>Datos guardados en este equipo</span>
+          <span id="sidebarLocalNote" data-i18n="sidebar.localNote">Datos guardados en este equipo</span>
         </div>
         <div class="version" id="appVersion">v0.1.0</div>
       </div>
@@ -97,6 +97,7 @@
   <div id="toastWrap" class="toast-wrap" aria-live="polite"></div>
   <div id="printRoot" class="print-root"></div>
 
+  <script src="js/i18n.js"></script>
   <script src="js/garments.js"></script>
   <script src="js/app.js"></script>
 </body>

@@ -88,6 +88,8 @@ fn main() {
             commands::create_backup,
             commands::list_backups,
             commands::restore_backup,
+            commands::set_backup_dir,
+            commands::choose_folder,
             commands::open_folder,
             commands::reset_all,
             commands::load_demo,

@@ -35,6 +35,12 @@ impl Store {
         if let Some(base) = dirs::data_dir() {
             attempts.push(base.join(APP_FOLDER));
         }
+        if let Some(local_base) = dirs::data_local_dir() {
+            let local_dir = local_base.join(APP_FOLDER);
+            if !attempts.contains(&local_dir) {
+                attempts.push(local_dir);
+            }
+        }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 attempts.push(dir.join("datos"));
