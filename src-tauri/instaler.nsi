@@ -20,11 +20,19 @@ SetCompressor /SOLID lzma
 Name "${APP_NAME}"
 OutFile "CosturaTaller_Installer_${APP_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${INSTALL_DIR_NAME}"
+InstallDirRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "InstallLocation"
 RequestExecutionLevel admin
+Unicode True
+
+; Iconos del Instalador y Desinstalador
+!define MUI_ICON "icons\icon.ico"
+!define MUI_UNICON "icons\icon.ico"
 
 ; ----------------------------------------------------------
 ; Páginas del Instalador
 !define MUI_ABORTWARNING
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
+!define MUI_FINISHPAGE_RUN_TEXT "Ejecutar ${APP_NAME}"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -42,11 +50,14 @@ RequestExecutionLevel admin
 ; ----------------------------------------------------------
 ; Sección Principal de Instalación
 Section "CoreInstallation" SecCore
+  SetShellVarContext all
   SetOutPath "$INSTDIR"
 
-  ; Copilar/Incluir el ejecutable desde la ruta de release de Tauri
-  ; (Asegúrate de que Costura.exe esté en esta ruta relativa o cámbiala según necesites)
-  File "..\src-tauri\target\release\Costura.exe"
+  ; Incluir el ejecutable compilado en release de Tauri
+  File "/oname=${APP_EXE}" "target\release\costura.exe"
+
+  ; Incluir configuración de Firebase (.env) junto al ejecutable
+  File "..\.env"
 
   ; Crear el Desinstalador oficial en el directorio de la app
   WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -59,8 +70,10 @@ Section "CoreInstallation" SecCore
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "Publisher" "${APP_PUBLISHER}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "UninstallString" "$INSTDIR\uninstall.exe"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "QuietUninstallString" "$INSTDIR\uninstall.exe /S"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "DisplayIcon" "$INSTDIR\${APP_EXE},0"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "UninstallString" '"$INSTDIR\uninstall.exe"'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "NoModify" 1
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${INSTALL_DIR_NAME}" "NoRepair" 1
 SectionEnd
@@ -68,15 +81,18 @@ SectionEnd
 ; ----------------------------------------------------------
 ; Sección de Desinstalación
 Section "Uninstall"
+  SetShellVarContext all
+
   ; Eliminar archivos principales
   Delete "$INSTDIR\${APP_EXE}"
+  Delete "$INSTDIR\.env"
   Delete "$INSTDIR\uninstall.exe"
 
   ; Eliminar accesos directos
   Delete "$SMPROGRAMS\${APP_NAME}.lnk"
   Delete "$DESKTOP\${APP_NAME}.lnk"
 
-  ; Intentar limpiar la carpeta de instalación (solo si está vacía para no borrar datos locales de usuario en %APPDATA%)
+  ; Limpiar carpeta de instalación (solo si está vacía, conserva datos del usuario en %APPDATA%)
   RMDir "$INSTDIR"
 
   ; Limpiar claves del registro de Windows
