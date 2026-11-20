@@ -33,11 +33,14 @@
 
   const state = {
     ready: false,
+    session: null,
+    loginMode: "login",
     data: null,
     meta: null,
     view: "inicio",
     orderQuery: "",
     orderStatus: "todos",
+    orderGarment: "todos",
     clientQuery: "",
     agendaFilter: "pendientes",
     supplyQuery: "",
@@ -138,15 +141,16 @@
     return fmtDate(value);
   }
 
-  function reminderWhen(value) {
-    const d = parseDateTime(value);
+  function reminderWhen(dueDate, dueTime) {
+    const d = dateOnly(dueDate);
     if (!d) return "—";
-    const diff = daysUntil(String(value).slice(0, 10));
-    const time = fmtTime(value);
-    if (diff === 0) return `${t("rel.today")} ${time}`;
-    if (diff === 1) return `${t("rel.tomorrow")} ${time}`;
-    if (diff === -1) return `${t("rel.yesterday")} ${time}`;
-    return `${fmtDate(value)} ${time}`;
+    const diff = daysUntil(String(dueDate).slice(0, 10));
+    const time = dueTime ? String(dueTime).slice(0, 5) : fmtTime(dueDate);
+    const suffix = time ? ` ${time}` : "";
+    if (diff === 0) return `${t("rel.today")}${suffix}`;
+    if (diff === 1) return `${t("rel.tomorrow")}${suffix}`;
+    if (diff === -1) return `${t("rel.yesterday")}${suffix}`;
+    return `${fmtDate(dueDate)}${suffix}`;
   }
 
   function num(value) {
@@ -285,9 +289,12 @@
   function applyTheme(theme) {
     document.documentElement.setAttribute("data-theme", theme);
     const icon = $("#themeIcon");
+    const loginIcon = $("#loginThemeIcon");
     const label = $("#themeLabel");
     const toggle = $("#themeToggle");
-    if (icon) icon.innerHTML = `<use href="#${theme === "dark" ? "i-sun" : "i-moon"}"/>`;
+    const iconSvg = `<use href="#${theme === "dark" ? "i-sun" : "i-moon"}"/>`;
+    if (icon) icon.innerHTML = iconSvg;
+    if (loginIcon) loginIcon.innerHTML = iconSvg;
     if (label) label.textContent = theme === "dark" ? t("theme.light") : t("theme.dark");
     if (toggle) toggle.title = t("theme.toggle");
     try {
@@ -308,6 +315,93 @@
     applyTheme(saved || (prefersDark ? "dark" : "light"));
   }
 
+  // ─────────────────────────── Control de Sesión y LoginView ───────────────────────────
+
+  function setLoginAlert(message, isInfo) {
+    const box = $("#loginAlertBox");
+    if (!box) return;
+    if (!message) {
+      box.hidden = true;
+      box.textContent = "";
+      box.classList.remove("is-info");
+      return;
+    }
+    box.textContent = message;
+    box.classList.toggle("is-info", Boolean(isInfo));
+    box.hidden = false;
+  }
+
+  function setLoginMode(mode) {
+    state.loginMode = mode === "register" ? "register" : "login";
+    const isReg = state.loginMode === "register";
+    const tabLogin = $("#tabLoginMode");
+    const tabReg = $("#tabRegisterMode");
+    const form = $("#loginViewForm");
+    const submitLabel = $("#loginSubmitLabel");
+    const forgotBtn = $("#btnForgotPassword");
+    const passInput = $("#loginPassword");
+
+    if (tabLogin) {
+      tabLogin.classList.toggle("is-active", !isReg);
+      tabLogin.setAttribute("aria-selected", String(!isReg));
+    }
+    if (tabReg) {
+      tabReg.classList.toggle("is-active", isReg);
+      tabReg.setAttribute("aria-selected", String(isReg));
+    }
+    if (form) form.dataset.mode = state.loginMode;
+    if (submitLabel) submitLabel.textContent = isReg ? "Crear cuenta del taller" : "Iniciar sesión";
+    if (forgotBtn) forgotBtn.hidden = isReg;
+    if (passInput) passInput.setAttribute("autocomplete", isReg ? "new-password" : "current-password");
+    setLoginAlert(null);
+  }
+
+  function showLoginView(errorMsg) {
+    state.ready = false;
+    state.data = null;
+    const loginEl = $("#loginView");
+    const shellEl = $("#appShell");
+    if (shellEl) shellEl.hidden = true;
+    if (loginEl) loginEl.hidden = false;
+    setLoginMode(state.loginMode || "login");
+    if (errorMsg) setLoginAlert(errorMsg, false);
+    const emailInput = $("#loginEmail");
+    if (emailInput) setTimeout(() => emailInput.focus(), 40);
+  }
+
+  async function enterAuthorizedWorkspace() {
+    const st = await invoke("get_state");
+    state.data = st.data;
+    state.meta = st;
+    state.session = st.session || (await invoke("get_session_status"));
+    state.ready = true;
+
+    const loginEl = $("#loginView");
+    const shellEl = $("#appShell");
+    if (loginEl) loginEl.hidden = true;
+    if (shellEl) shellEl.hidden = false;
+
+    if (I18N && st.data && st.data.settings && st.data.settings.language) {
+      I18N.setLang(st.data.settings.language);
+    }
+    const verEl = $("#appVersion");
+    if (verEl) verEl.textContent = "v" + (st.appVersion || "0.1.0");
+
+    if (window.CosturaFirebaseBridge && window.CosturaFirebaseBridge.initFromEnv) {
+      window.CosturaFirebaseBridge.initFromEnv(st.data && st.data.firebase).catch(() => {});
+    }
+
+    render();
+
+    if (st.warning) {
+      toast(st.warning, "warn", 11000);
+      invoke("dismiss_warning").catch(() => {});
+    }
+    if (!state.data.customers.length && !state.data.orders.length) {
+      toast(t("toast.welcome"), "info", 7000);
+    }
+  }
+
   // ─────────────────────────── Arranque ───────────────────────────
 
   async function boot() {
@@ -315,37 +409,44 @@
     bindGlobalEvents();
 
     if (!invoke) {
+      const loginEl = $("#loginView");
+      const shellEl = $("#appShell");
+      if (loginEl) loginEl.hidden = true;
+      if (shellEl) shellEl.hidden = false;
       $("#viewRoot").innerHTML = `<div class="page"><div class="card card-pad">
         <h2 class="page-title">Abre Costura desde su aplicación</h2>
         <p class="page-sub">Esta página necesita el programa de escritorio para leer y guardar tus datos.</p>
-        <p class="muted small">Ejecuta <span class="mono">costura.exe</span> (o <span class="mono">cargo run</span> dentro de src-tauri).</p>
+        <p class="muted small">Ejecuta <span class="mono">Costura.exe</span> (o <span class="mono">cargo run</span> dentro de src-tauri).</p>
       </div></div>`;
       return;
     }
 
+    window.addEventListener("costura:firebase-status", (ev) => {
+      if (state.ready) {
+        updateChrome();
+        if (state.view === "ajustes") render();
+      } else if (ev && ev.detail && ev.detail.currentUser && !state.enteringWorkspace) {
+        state.enteringWorkspace = true;
+        enterAuthorizedWorkspace().finally(() => {
+          state.enteringWorkspace = false;
+        });
+      }
+    });
+
     try {
-      const st = await invoke("get_state");
-      state.data = st.data;
-      state.meta = st;
-      state.ready = true;
-      if (I18N && st.data && st.data.settings && st.data.settings.language) {
-        I18N.setLang(st.data.settings.language);
+      let fbStatus = null;
+      if (window.CosturaFirebaseBridge && window.CosturaFirebaseBridge.initFromEnv) {
+        fbStatus = await window.CosturaFirebaseBridge.initFromEnv().catch(() => null);
       }
-      $("#appVersion").textContent = "v" + (st.appVersion || "0.1.0");
-      render();
-      if (st.warning) {
-        toast(st.warning, "warn", 11000);
-        invoke("dismiss_warning").catch(() => {});
+      const sessionStatus = await invoke("get_session_status");
+      state.session = sessionStatus;
+      if (!sessionStatus || !sessionStatus.authorized) {
+        showLoginView(fbStatus && fbStatus.lastAuthError ? fbStatus.lastAuthError : "");
+        return;
       }
-      if (!state.data.customers.length && !state.data.orders.length) {
-        toast(t("toast.welcome"), "info", 7000);
-      }
+      await enterAuthorizedWorkspace();
     } catch (err) {
-      $("#viewRoot").innerHTML = `<div class="page"><div class="card card-pad">
-        <h2 class="page-title">No se pudieron cargar los datos</h2>
-        <p class="page-sub">${esc(err && err.message ? err.message : err)}</p>
-        <button class="btn btn-ghost" onclick="location.reload()">${esc(t("common.retry"))}</button>
-      </div></div>`;
+      showLoginView(err && err.message ? err.message : String(err));
     }
   }
 
@@ -412,6 +513,26 @@
       $$(".nav-item").forEach((btn) => {
         btn.classList.toggle("is-active", btn.dataset.view === state.view);
       });
+
+      const bridge = window.CosturaFirebaseBridge;
+      const bStatus = bridge && bridge.getStatus ? bridge.getStatus() : null;
+      const currentUser = bStatus && bStatus.currentUser;
+      const sess = state.session || {};
+      const sessionModeEl = $("#sidebarSessionMode");
+      const sessionUserEl = $("#sidebarSessionUser");
+      if (sessionModeEl && sessionUserEl) {
+        if (currentUser || sess.mode === "authenticated") {
+          sessionModeEl.textContent = "Sesión Cloud activa";
+          sessionUserEl.textContent =
+            (currentUser && (currentUser.email || currentUser.displayName)) ||
+            sess.email ||
+            sess.activeUid ||
+            "Usuario autenticado";
+        } else {
+          sessionModeEl.textContent = "Modo local activo";
+          sessionUserEl.textContent = s.ownerName || s.workshopName || "Sin conexión";
+        }
+      }
     }
 
   function render() {
@@ -500,7 +621,7 @@
 
     const todayReminders = reminders()
       .filter((r) => !r.completed && String(r.dueDate).slice(0, 10) === todayStr())
-      .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
+      .sort((a, b) => String(a.dueTime || "23:59").localeCompare(String(b.dueTime || "23:59")))
       .slice(0, 5);
 
     const urgent = activeOrders()
@@ -560,7 +681,7 @@
       ? `<div class="list">${todayReminders
           .map(
             (r) => `<button class="list-row" type="button" data-action="edit-reminder" data-id="${esc(r.id)}">
-              <span class="time-chip"><span class="t">${esc(fmtTime(r.dueDate))}</span><span class="l">${esc(t("rel.todayChip"))}</span></span>
+              <span class="time-chip"><span class="t">${esc(r.dueTime || fmtTime(r.dueDate) || "—")}</span><span class="l">${esc(t("rel.todayChip"))}</span></span>
               <div class="list-main">
                 <div class="list-title">${esc(r.title)}</div>
                 <div class="list-sub">${r.customerId ? esc(customerName(r.customerId)) : esc(r.description || t("home.noClient"))}${r.priority !== "normal" ? " · " + esc(prioLabel(r.priority)) : ""}</div>
@@ -634,10 +755,13 @@
   function filteredOrders() {
     const q = state.orderQuery.trim().toLowerCase();
     let list = orders().slice();
+    if (state.orderGarment && state.orderGarment !== "todos") {
+      list = list.filter((o) => o.garmentType === state.orderGarment);
+    }
     if (state.orderStatus !== "todos") list = list.filter((o) => o.status === state.orderStatus);
     if (q) {
       list = list.filter((o) => {
-        const hay = `${o.pieceName} ${o.styleName} ${o.fabricDetails} ${customerName(o.customerId)} ${statusLabel(o.status)}`.toLowerCase();
+        const hay = `${o.pieceName} ${o.customType || ""} ${o.styleName} ${o.fabricDetails} ${customerName(o.customerId)} ${statusLabel(o.status)}`.toLowerCase();
         return hay.includes(q);
       });
     }
@@ -655,6 +779,20 @@
     const active = activeOrders().length;
     const statusOptions = [["todos", t("orders.filterAll")], ...STATUS_KEYS.map((k) => [k, statusLabel(k)])]
       .map(([v, l]) => `<option value="${esc(v)}" ${state.orderStatus === v ? "selected" : ""}>${esc(l)}</option>`)
+      .join("");
+
+    const garmentTabs = [
+      ["todos", t("orders.filterAll"), orders().length],
+      ["camisa", G.label("camisa"), orders().filter((o) => o.garmentType === "camisa").length],
+      ["pantalon", G.label("pantalon"), orders().filter((o) => o.garmentType === "pantalon").length],
+      ["vestido", G.label("vestido"), orders().filter((o) => o.garmentType === "vestido").length],
+      ["bolso", G.label("bolso"), orders().filter((o) => o.garmentType === "bolso").length],
+      ["otro", "Otros", orders().filter((o) => o.garmentType === "otro").length],
+    ]
+      .map(
+        ([key, label, count]) =>
+          `<button class="chip ${state.orderGarment === key ? "is-active" : ""}" type="button" data-action="order-garment-filter" data-garment="${esc(key)}">${esc(label)}<span class="chip-count">${count}</span></button>`
+      )
       .join("");
 
     const rows = list
@@ -689,6 +827,9 @@
         esc(t("orders.sub", { total: orders().length, active, activeWord: tp(active, "orders.active"), delivered: orders().length - active })),
         `<button class="btn btn-primary" data-action="new-order"><svg><use href="#i-plus"/></svg>${esc(t("home.btnNewOrder"))}</button>`
       )}
+      <div class="toolbar" style="margin-bottom:10px">
+        <div class="chips">${garmentTabs}</div>
+      </div>
       <div class="toolbar">
         <div class="search">
           <svg><use href="#i-search"/></svg>
@@ -799,21 +940,27 @@
       if (diff != null && diff <= 7) return "semana";
       return "despues";
     };
-    const sort = (a, b) => String(a.dueDate).localeCompare(String(b.dueDate));
+    const sort = (a, b) =>
+      String(a.dueDate).localeCompare(String(b.dueDate)) ||
+      String(a.dueTime || "23:59").localeCompare(String(b.dueTime || "23:59"));
     const buckets = { atrasados: [], hoy: [], manana: [], semana: [], despues: [] };
     pending.forEach((r) => buckets[group(r)].push(r));
     Object.keys(buckets).forEach((k) => buckets[k].sort(sort));
-    done.sort((a, b) => String(b.dueDate).localeCompare(String(a.dueDate)));
+    done.sort(
+      (a, b) =>
+        String(b.dueDate).localeCompare(String(a.dueDate)) ||
+        String(b.dueTime || "").localeCompare(String(a.dueTime || ""))
+    );
     return { buckets, done, pending };
   }
 
   function reminderItem(r) {
     const order = r.orderId ? orderById(r.orderId) : null;
     const customer = r.customerId ? customerById(r.customerId) : null;
-    const meta = [reminderWhen(r.dueDate)];
+    const meta = [reminderWhen(r.dueDate, r.dueTime)];
     if (customer) meta.push(customer.fullName);
     if (order) meta.push(order.pieceName);
-    const late = !r.completed && String(r.dueDate) < todayStr() + "T00:00";
+    const late = !r.completed && String(r.dueDate).slice(0, 10) < todayStr();
     return `<div class="reminder ${r.completed ? "is-done" : ""}">
       <button class="check-circle" type="button" title="${esc(r.completed ? t("agenda.markPending") : t("agenda.markCompleted"))}" data-action="toggle-reminder" data-id="${esc(r.id)}">
         <svg><use href="#i-check"/></svg>
@@ -894,8 +1041,22 @@
 
   function viewSettings() {
     const s = data().settings;
+    const fb = data().firebase || {};
+    const bridge = window.CosturaFirebaseBridge;
+    const bStatus = bridge && bridge.getStatus ? bridge.getStatus() : null;
     const currentLang = (s.language || (I18N && I18N.getLang()) || "es").toLowerCase();
     const meta = state.meta || {};
+    const isCloudOk = Boolean(
+      (bStatus && bStatus.configured) ||
+        (fb.projectId &&
+          !String(fb.projectId).startsWith("REEMPLAZAR_") &&
+          fb.apiKey &&
+          !String(fb.apiKey).startsWith("REEMPLAZAR_"))
+    );
+    const currentUser = bStatus && bStatus.currentUser;
+    const activeUid = (currentUser && currentUser.uid) || (bStatus && bStatus.activeUid) || fb.activeUid || "";
+    const fbRoot = `/talleres/${activeUid.trim() || "PENDIENTE_UID_FIREBASE"}`;
+    const lastSync = bStatus && bStatus.lastSyncSummary;
     const rows = state.backups.length
       ? state.backups
           .slice(0, 12)
@@ -935,8 +1096,119 @@
                     <option value="pt" ${currentLang === "pt" ? "selected" : ""}>Português</option>
                   </select>
                 </div>
+                <div class="field"><label class="label" for="wsTaxRate">Impuesto para Excel contable (%)</label>
+                  <input class="input" id="wsTaxRate" name="taxRatePercent" type="number" min="0" max="100" step="0.01" value="${esc(s.taxRatePercent != null ? s.taxRatePercent : 0)}" />
+                  <span class="hint">0 % = Exento / Sin desglose fiscal</span>
+                </div>
+                <div class="field"><label class="label" for="wsTaxLabel">Etiqueta de impuesto</label>
+                  <input class="input" id="wsTaxLabel" name="taxLabel" maxlength="20" value="${esc(s.taxLabel || "IVA")}" placeholder="IVA, IGV, VAT…" />
+                </div>
                 <div class="field full"><button class="btn btn-primary" type="submit" style="width:auto;align-self:flex-start"><svg><use href="#i-check"/></svg>${esc(t("settings.saveBtn"))}</button></div>
               </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title"><svg><use href="#i-database"/></svg>Conexión Firebase Cloud Firestore v2 (<span class="mono">${esc(fb.projectId || "Sin proyecto")}</span>)</div>
+              <span class="pill ${currentUser ? "pill-entregado" : isCloudOk ? "pill-en_confeccion" : "pill-prueba_ajuste"}">${
+                currentUser ? "Autenticado y Conectado" : isCloudOk ? ".env Cargado (Inicia sesión)" : "Pendiente de .env"
+              }</span>
+            </div>
+            <div class="card-pad">
+              <p class="setting-note" style="margin-bottom:10px">
+                Raíz multi-tenant activa: <code class="mono"><strong>${esc(fbRoot)}</strong></code> (Subcolecciones: <code class="mono">clientes</code>, <code class="mono">pedidos</code>, <code class="mono">insumos</code>, <code class="mono">movimientos</code>, <code class="mono">agenda</code>, <code class="mono">auditoria</code>).
+                Las credenciales se cargan desde <code class="mono">.env</code> en memoria y el token de sesión se custodia en el <strong>Administrador de Credenciales del SO (keyring)</strong>.
+              </p>
+
+              ${
+                currentUser
+                  ? `<div class="balance-box is-paid" style="margin-bottom:12px">
+                      <div>
+                        <div class="balance-label">Sesión Firebase Auth Activa (Custodiada en Keyring)</div>
+                        <div style="font-weight:700;font-size:14px">${esc(currentUser.email || currentUser.displayName || "Usuario autenticado")}</div>
+                        <div class="muted tiny mono">UID: ${esc(currentUser.uid)}</div>
+                      </div>
+                      <button class="btn btn-ghost btn-sm" type="button" data-action="firebase-logout">Cerrar sesión</button>
+                    </div>`
+                  : `<form data-form="firebase-auth" class="form-grid" style="margin-bottom:12px;padding:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius)" autocomplete="off">
+                      <div class="field full">
+                        <strong style="font-size:13px">1. Iniciar sesión o crear cuenta del taller en Firebase Auth</strong>
+                        <span class="hint">Requerido por <code class="mono">firestore.rules</code> (<code class="mono">request.auth.uid == uid</code>) para crear y sincronizar las tablas en <code class="mono">/talleres/{uid}</code>.</span>
+                      </div>
+                      <div class="field">
+                        <label class="label" for="fbAuthEmail">Correo electrónico</label>
+                        <input class="input" id="fbAuthEmail" name="email" type="email" required placeholder="taller@ejemplo.com" />
+                      </div>
+                      <div class="field">
+                        <label class="label" for="fbAuthPass">Contraseña (mín. 6 caracteres)</label>
+                        <input class="input" id="fbAuthPass" name="password" type="password" minlength="6" required placeholder="••••••••" />
+                      </div>
+                      <div class="field full row-wrap">
+                        <button class="btn btn-primary btn-sm" type="submit" data-auth-mode="login"><svg><use href="#i-check"/></svg>Iniciar sesión</button>
+                        <button class="btn btn-ghost btn-sm" type="button" data-action="firebase-register"><svg><use href="#i-plus"/></svg>Crear cuenta y subir tablas</button>
+                        <button class="btn btn-ghost btn-sm" type="button" data-action="firebase-google-login">Iniciar con Google</button>
+                      </div>
+                    </form>`
+              }
+
+              <div class="row-wrap" style="margin-bottom:12px">
+                <button class="btn btn-primary btn-sm" type="button" data-action="firebase-materialize-tables" ${!currentUser ? "disabled title='Inicia sesión arriba primero'" : ""}>
+                  <svg><use href="#i-database"/></svg>Inicializar y Subir todas las Tablas a Firestore (/talleres/{uid})
+                </button>
+                <button class="btn btn-ghost btn-sm" type="button" data-action="preview-firestore-tables">
+                  <svg><use href="#i-folder"/></svg>Ver JSON de Tablas para Firestore
+                </button>
+              </div>
+
+              ${
+                lastSync
+                  ? `<div class="path" style="margin-bottom:12px;border-color:var(--good)">
+                      <strong>Última sincronización exitosa:</strong> ${esc(lastSync.rootPath)} (${lastSync.totalOperations} documentos escritos)<br/>
+                      Tablas: talleres (${lastSync.counts.talleres}) · clientes (${lastSync.counts.clientes}) · pedidos (${lastSync.counts.pedidos}) · insumos (${lastSync.counts.insumos}) · movimientos (${lastSync.counts.movimientos}) · agenda (${lastSync.counts.agenda}) · auditoria (${lastSync.counts.auditoria})
+                    </div>`
+                  : ""
+              }
+
+              <details style="margin-top:8px">
+                <summary class="muted small" style="cursor:pointer;font-weight:600">Ver / Ajustar parámetros de conexión (.env hidratado)</summary>
+                <form data-form="firebase-slots" class="form-grid" style="margin-top:10px" autocomplete="off">
+                  <div class="field">
+                    <label class="label" for="fbMode">Modo de operación</label>
+                    <select class="select" id="fbMode" name="mode">
+                      <option value="offline_local" ${fb.mode === "offline_local" ? "selected" : ""}>Local Offline (costura.json)</option>
+                      <option value="emulator" ${fb.mode === "emulator" ? "selected" : ""}>Firebase Emulator Suite (:8080 / :9099)</option>
+                      <option value="cloud" ${fb.mode === "cloud" ? "selected" : ""}>Firebase Cloud Producción</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="label" for="fbProjectId">Firebase Project ID</label>
+                    <input class="input mono" id="fbProjectId" name="projectId" value="${esc(fb.projectId || "")}" />
+                  </div>
+                  <div class="field">
+                    <label class="label" for="fbAuthDomain">Auth Domain</label>
+                    <input class="input mono" id="fbAuthDomain" name="authDomain" value="${esc(fb.authDomain || "")}" />
+                  </div>
+                  <div class="field">
+                    <label class="label" for="fbStorageBucket">Storage Bucket</label>
+                    <input class="input mono" id="fbStorageBucket" name="storageBucket" value="${esc(fb.storageBucket || "")}" />
+                  </div>
+                  <div class="field">
+                    <label class="label" for="fbAppId">Firebase App ID</label>
+                    <input class="input mono" id="fbAppId" name="appId" value="${esc(fb.appId || "")}" />
+                  </div>
+                  <div class="field">
+                    <label class="label" for="fbSenderId">Messaging Sender ID</label>
+                    <input class="input mono" id="fbSenderId" name="messagingSenderId" value="${esc(fb.messagingSenderId || "")}" />
+                  </div>
+                  <input type="hidden" name="apiKey" value="${esc(fb.apiKey || "")}" />
+                  <input type="hidden" name="googleWebClientId" value="${esc(fb.googleWebClientId || "")}" />
+                  <input type="hidden" name="activeUid" value="${esc(activeUid)}" />
+                  <div class="field full">
+                    <button class="btn btn-ghost btn-sm" type="submit" style="width:auto;align-self:flex-start"><svg><use href="#i-check"/></svg>Actualizar modo de conexión</button>
+                  </div>
+                </form>
+              </details>
             </div>
           </div>
 
@@ -969,6 +1241,39 @@
         </div>
 
         <div class="stack">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title"><svg><use href="#i-wallet"/></svg>Exportación Contable Excel (.xlsx — 3 Pestañas)</div>
+              <span class="pill ${Number(s.taxRatePercent) > 0 ? "pill-en_confeccion" : "pill-entregado"}">${
+                Number(s.taxRatePercent) > 0
+                  ? `${esc(s.taxLabel || "IVA")} ${Number(s.taxRatePercent).toFixed(2)}%`
+                  : "Exento (0%)"
+              }</span>
+            </div>
+            <div class="card-pad">
+              <p class="setting-note" style="margin-top:0">
+                Genera el libro contable OpenXML (<code class="mono">.xlsx</code>) con 3 pestañas:
+                <code class="mono">Resumen_Mes</code> (con desglose fiscal dinámico según la tasa configurada arriba),
+                <code class="mono">Detalle_Pedidos</code> y <code class="mono">Movimientos_Insumos</code> (<code class="mono">mov_{orderId}_r{revision}_{supplyId}</code>).
+              </p>
+              <form data-form="export-xlsx" class="form-grid" autocomplete="off">
+                <div class="field">
+                  <label class="label" for="xlsxYear">Año contable (0 = Todo el historial)</label>
+                  <input class="input" id="xlsxYear" name="year" type="number" min="0" max="2100" value="${new Date().getFullYear()}" />
+                </div>
+                <div class="field">
+                  <label class="label" for="xlsxMonth">Mes (1–12, o 0 = Todos)</label>
+                  <input class="input" id="xlsxMonth" name="month" type="number" min="0" max="12" value="${new Date().getMonth() + 1}" />
+                </div>
+                <div class="field full row-wrap">
+                  <button class="btn btn-primary btn-sm" type="submit"><svg><use href="#i-database"/></svg>Generar Reporte Contable .XLSX</button>
+                  <button class="btn btn-ghost btn-sm" type="button" data-action="open-folder" data-folder="reports"><svg><use href="#i-folder"/></svg>Abrir carpeta de reportes</button>
+                  <button class="btn btn-ghost btn-sm" type="button" data-action="purge-image-cache"><svg><use href="#i-image"/></svg>Verificar Caché LRU Imágenes (150 MB)</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
           <div class="card">
             <div class="card-head"><div class="card-title"><svg><use href="#i-database"/></svg>${esc(t("settings.cardBackups"))}</div><button class="btn btn-sm btn-ghost" data-action="backup-create"><svg><use href="#i-plus"/></svg>${esc(t("settings.createBackup"))}</button></div>
             <div class="card-pad" id="backupList">
@@ -1469,13 +1774,23 @@
       const reader = new FileReader();
       reader.onload = (ev) => {
         const rawUrl = ev.target.result;
-        compressImage(rawUrl, 900, 0.82, (compressed) => {
+        compressImage(rawUrl, 1280, 0.75, (compressed) => {
           if (!orderForm.images) orderForm.images = [];
-          if (orderForm.images.length >= 20) {
+          if (orderForm.images.length >= 4) {
             toast(t("toast.maxImagesReached"), "warn");
             return;
           }
           orderForm.images.push(compressed);
+          const idx = orderForm.images.length;
+          const ordId = orderForm.editingId || "draft";
+          if (invoke) {
+            invoke("cache_order_image", {
+              orderId: String(ordId),
+              imageId: `img_${idx}`,
+              payload: String(compressed),
+              pendingUpload: true,
+            }).catch(() => {});
+          }
           renderOrderImagesGrid();
           renderOrderPreview();
         });
@@ -1503,7 +1818,12 @@
       canvas.height = h;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, w, h);
-      callback(canvas.toDataURL("image/jpeg", quality || 0.82));
+      const webp = canvas.toDataURL("image/webp", quality || 0.75);
+      if (webp.startsWith("data:image/webp")) {
+        callback(webp);
+      } else {
+        callback(canvas.toDataURL("image/jpeg", quality || 0.75));
+      }
     };
     img.onerror = () => callback(dataUrl);
     img.src = dataUrl;
@@ -1912,8 +2232,10 @@
     const now = new Date();
     const def = new Date(now.getTime() + 60 * 60 * 1000);
     def.setMinutes(0, 0, 0);
-    const defValue = `${def.getFullYear()}-${pad(def.getMonth() + 1)}-${pad(def.getDate())}T${pad(def.getHours())}:${pad(def.getMinutes())}`;
-    const value = r ? String(r.dueDate).slice(0, 16) : defValue;
+    const defDate = `${def.getFullYear()}-${pad(def.getMonth() + 1)}-${pad(def.getDate())}`;
+    const defTime = `${pad(def.getHours())}:${pad(def.getMinutes())}`;
+    const dateVal = r ? String(r.dueDate).slice(0, 10) : defDate;
+    const timeVal = r ? (r.dueTime != null ? String(r.dueTime).slice(0, 5) : "") : defTime;
 
     const customerOptions = `<option value="">${esc(t("reminderForm.noClientOpt"))}</option>` +
       customers()
@@ -1941,9 +2263,11 @@
           <div class="form-grid">
             <div class="field full"><label class="label" for="rTitle">${esc(t("reminderForm.titleLabel"))}</label>
               <input class="input" id="rTitle" name="title" maxlength="140" required value="${esc(r ? r.title : "")}" placeholder="${esc(t("reminderForm.titlePlaceholder"))}" /></div>
-            <div class="field"><label class="label" for="rDue">${esc(t("reminderForm.dateTimeLabel"))}</label>
-              <input class="input" id="rDue" name="dueDate" type="datetime-local" required value="${esc(value)}" /></div>
-            <div class="field"><label class="label" for="rPriority">${esc(t("orderForm.priorityLabel"))}</label>
+            <div class="field"><label class="label" for="rDueDate">Fecha (YYYY-MM-DD)</label>
+              <input class="input" id="rDueDate" name="dueDate" type="date" required value="${esc(dateVal)}" /></div>
+            <div class="field"><label class="label" for="rDueTime">Hora 24h (${esc(t("common.optional"))})</label>
+              <input class="input" id="rDueTime" name="dueTime" type="time" value="${esc(timeVal)}" /></div>
+            <div class="field full"><label class="label" for="rPriority">${esc(t("orderForm.priorityLabel"))}</label>
               <select class="select" id="rPriority" name="priority">
                 ${PRIORITY_KEYS.map((p) => `<option value="${p}" ${r && r.priority === p ? "selected" : ""}>${esc(prioLabel(p))}</option>`).join("")}
               </select></div>
@@ -2066,6 +2390,11 @@
       case "clear-filters":
         state.orderQuery = "";
         state.orderStatus = "todos";
+        state.orderGarment = "todos";
+        render();
+        break;
+      case "order-garment-filter":
+        state.orderGarment = el.dataset.garment || "todos";
         render();
         break;
       case "agenda-filter":
@@ -2158,6 +2487,188 @@
           await loadBackups();
           render();
           toast(t("toast.backupDirReset"), "success");
+        } catch (e) {
+          /* avisado */
+        }
+        break;
+      }
+      case "preview-firestore-tables": {
+        try {
+          const snap = await call("get_firestore_materialized_snapshot", { uid: null });
+          const pretty = JSON.stringify(snap, null, 2);
+          openModal(
+            `<div class="modal-card">
+              <div class="modal-head">
+                <div>
+                  <h2 class="modal-title">Vista previa de Tablas para Cloud Firestore</h2>
+                  <p class="modal-sub">Estructura jerárquica aislada por UID (${esc(snap.rootPath)}) lista para WriteBatch</p>
+                </div>
+                <button class="icon-btn modal-close" type="button" data-action="close-modal"><svg><use href="#i-x"/></svg></button>
+              </div>
+              <div class="modal-body">
+                <pre class="path" style="max-height:58vh;overflow:auto;white-space:pre;margin:0">${esc(pretty)}</pre>
+              </div>
+              <div class="modal-foot">
+                <button class="btn btn-primary" type="button" data-action="close-modal">${esc(t("common.close"))}</button>
+              </div>
+            </div>`,
+            { wide: true }
+          );
+        } catch (e) {
+          /* avisado */
+        }
+        break;
+      }
+      case "firebase-register": {
+        const bridge = window.CosturaFirebaseBridge;
+        if (!bridge) {
+          toast("El puente de Firebase aún no está cargado.", "warn");
+          break;
+        }
+        const emailEl = $("#fbAuthEmail");
+        const passEl = $("#fbAuthPass");
+        const email = emailEl ? emailEl.value.trim() : "";
+        const pass = passEl ? passEl.value : "";
+        if (!email || pass.length < 6) {
+          toast("Ingresa un correo válido y una contraseña de al menos 6 caracteres.", "warn");
+          break;
+        }
+        try {
+          await bridge.registerWithEmail(email, pass);
+          toast("Cuenta creada en Firebase Auth. Subiendo tablas a Firestore…", "info");
+          const sum = await bridge.syncAndMaterializeWorkshop({ materializeAllTables: true });
+          const st = await call("get_state");
+          state.data = st.data;
+          render();
+          toast(`¡Tablas creadas y sincronizadas en ${sum.rootPath}! (${sum.totalOperations} docs)`, "success", 7000);
+        } catch (err) {
+          toast(err && err.message ? err.message : String(err), "error", 7000);
+        }
+        break;
+      }
+      case "firebase-google-login": {
+        const bridge = window.CosturaFirebaseBridge;
+        if (!bridge) break;
+        try {
+          await bridge.loginWithGoogle();
+          toast("Sesión iniciada con Google. Subiendo tablas a Firestore…", "info");
+          const sum = await bridge.syncAndMaterializeWorkshop({ materializeAllTables: true });
+          const st = await call("get_state");
+          state.data = st.data;
+          render();
+          toast(`¡Tablas sincronizadas en ${sum.rootPath}!`, "success", 7000);
+        } catch (err) {
+          toast(err && err.message ? err.message : String(err), "error", 7000);
+        }
+        break;
+      }
+      case "login-switch-mode": {
+        setLoginMode(el.dataset.mode || "login");
+        break;
+      }
+      case "login-forgot-password": {
+        const bridge = window.CosturaFirebaseBridge;
+        const emailEl = $("#loginEmail");
+        const email = emailEl ? emailEl.value.trim() : "";
+        if (!email) {
+          setLoginAlert("Escribe tu correo electrónico arriba para enviarte el enlace de recuperación.", false);
+          if (emailEl) emailEl.focus();
+          break;
+        }
+        if (!bridge || !bridge.resetPassword) {
+          setLoginAlert("El puente de autenticación de Firebase no está disponible.", false);
+          break;
+        }
+        try {
+          await bridge.resetPassword(email);
+          setLoginAlert(`Se envió un correo de recuperación a ${email}. Revisa tu bandeja de entrada.`, true);
+        } catch (err) {
+          setLoginAlert(err && err.message ? err.message : String(err), false);
+        }
+        break;
+      }
+      case "login-with-google": {
+        const bridge = window.CosturaFirebaseBridge;
+        if (!bridge) {
+          setLoginAlert("El puente de autenticación de Firebase no está disponible.", false);
+          break;
+        }
+        setLoginAlert(null);
+        el.disabled = true;
+        try {
+          await bridge.loginWithGoogle();
+          await enterAuthorizedWorkspace();
+          toast("Sesión iniciada con Google. Sincronizando /talleres/{uid}…", "info");
+          try {
+            const sum = await bridge.syncAndMaterializeWorkshop({ materializeAllTables: true });
+            render();
+            toast(`¡Taller sincronizado en ${sum.rootPath}!`, "success", 6000);
+          } catch (_) {
+            /* sincronización en segundo plano no bloqueante */
+          }
+        } catch (err) {
+          setLoginAlert(err && err.message ? err.message : String(err), false);
+        } finally {
+          el.disabled = false;
+        }
+        break;
+      }
+      case "login-offline-local": {
+        setLoginAlert(null);
+        try {
+          state.session = await call("authorize_offline_local_session");
+          await enterAuthorizedWorkspace();
+          toast("Modo local sin conexión activado.", "info", 5000);
+        } catch (err) {
+          setLoginAlert(err && err.message ? err.message : String(err), false);
+        }
+        break;
+      }
+      case "sidebar-logout":
+      case "firebase-logout": {
+        const bridge = window.CosturaFirebaseBridge;
+        try {
+          if (bridge && bridge.logout) {
+            await bridge.logout();
+          } else {
+            await call("clear_secure_session_token");
+          }
+          state.session = await invoke("get_session_status");
+          closeModal();
+          showLoginView();
+          toast("Sesión cerrada y credencial eliminada del llavero del SO.", "info");
+        } catch (err) {
+          toast(err && err.message ? err.message : String(err), "error");
+        }
+        break;
+      }
+      case "firebase-materialize-tables": {
+        const bridge = window.CosturaFirebaseBridge;
+        if (!bridge) break;
+        try {
+          toast("Materializando y subiendo colecciones a Cloud Firestore…", "info");
+          const sum = await bridge.syncAndMaterializeWorkshop({ materializeAllTables: true });
+          render();
+          toast(
+            `¡Éxito! Se escribieron ${sum.totalOperations} documentos en ${sum.rootPath} (talleres, clientes, pedidos, insumos, movimientos, agenda, auditoria).`,
+            "success",
+            8000
+          );
+        } catch (err) {
+          toast(err && err.message ? err.message : String(err), "error", 8000);
+        }
+        break;
+      }
+      case "purge-image-cache": {
+        try {
+          const stats = await call("purge_image_cache_lru");
+          const mbUsed = (Number(stats.totalBytes || 0) / (1024 * 1024)).toFixed(2);
+          const mbMax = (Number(stats.maxBytes || 0) / (1024 * 1024)).toFixed(0);
+          toast(
+            `Caché LRU de imágenes: ${mbUsed} MB / ${mbMax} MB (${stats.totalFiles} archivos, ${stats.pendingUploadFiles} pendientes de subida protegidos, ${stats.evictedLastRun} purgados).`,
+            "info",
+            7000
+          );
         } catch (e) {
           /* avisado */
         }
@@ -2354,8 +2865,108 @@
           currency: String(fd.get("currency") || "$"),
           defaultDueDays: Number(fd.get("defaultDueDays") || 7),
           language: lang,
+          taxRatePercent: num(fd.get("taxRatePercent")),
+          taxLabel: String(fd.get("taxLabel") || "IVA"),
         });
         toast(t("toast.settingsSaved"), "success");
+        render();
+        return;
+      }
+
+      if (kind === "export-xlsx") {
+        const fd = new FormData(form);
+        const year = parseInt(String(fd.get("year") || "0"), 10) || 0;
+        const month = parseInt(String(fd.get("month") || "0"), 10) || 0;
+        const res = await call("export_accounting_xlsx", {
+          year,
+          month,
+          path: null,
+        });
+        toast(
+          `Reporte Excel generado (${res.summary.period}): ${res.path} — ${res.summary.ordersCount} pedidos`,
+          "success",
+          8000
+        );
+        return;
+      }
+
+      if (kind === "login-view-auth") {
+        const bridge = window.CosturaFirebaseBridge;
+        if (!bridge) {
+          setLoginAlert("El puente de Firebase no está disponible.", false);
+          return;
+        }
+        setLoginAlert(null);
+        const fd = new FormData(form);
+        const email = String(fd.get("email") || "").trim();
+        const pass = String(fd.get("password") || "");
+        const mode = form.dataset.mode || state.loginMode || "login";
+
+        if (!email || pass.length < 6) {
+          setLoginAlert("Ingresa un correo válido y una contraseña de al menos 6 caracteres.", false);
+          return;
+        }
+
+        try {
+          if (mode === "register") {
+            await bridge.registerWithEmail(email, pass);
+          } else {
+            await bridge.loginWithEmail(email, pass);
+          }
+          await enterAuthorizedWorkspace();
+          toast(
+            mode === "register"
+              ? "Cuenta creada. Sincronizando tablas en /talleres/{uid}…"
+              : "Sesión iniciada. Sincronizando tablas en /talleres/{uid}…",
+            "info"
+          );
+          try {
+            const sum = await bridge.syncAndMaterializeWorkshop({ materializeAllTables: true });
+            render();
+            toast(`¡Taller sincronizado en ${sum.rootPath}! (${sum.totalOperations} docs)`, "success", 6000);
+          } catch (_) {
+            /* sincronización posterior no bloquea la apertura del taller */
+          }
+        } catch (err) {
+          setLoginAlert(err && err.message ? err.message : String(err), false);
+        }
+        return;
+      }
+
+      if (kind === "firebase-auth") {
+        const bridge = window.CosturaFirebaseBridge;
+        if (!bridge) throw new Error("El puente de Firebase no está disponible.");
+        const fd = new FormData(form);
+        const email = String(fd.get("email") || "").trim();
+        const pass = String(fd.get("password") || "");
+        await bridge.loginWithEmail(email, pass);
+        toast("Sesión iniciada. Sincronizando tablas con Cloud Firestore…", "info");
+        const sum = await bridge.syncAndMaterializeWorkshop({ materializeAllTables: true });
+        const st = await call("get_state");
+        state.data = st.data;
+        render();
+        toast(`¡Tablas sincronizadas en ${sum.rootPath}! (${sum.totalOperations} docs)`, "success", 7000);
+        return;
+      }
+
+      if (kind === "firebase-slots") {
+        const fd = new FormData(form);
+        const mode = String(fd.get("mode") || "offline_local");
+        state.data = await call("save_firebase_slots", {
+          input: {
+            mode,
+            useEmulators: mode === "emulator",
+            projectId: String(fd.get("projectId") || ""),
+            apiKey: String(fd.get("apiKey") || ""),
+            authDomain: String(fd.get("authDomain") || ""),
+            storageBucket: String(fd.get("storageBucket") || ""),
+            messagingSenderId: String(fd.get("messagingSenderId") || ""),
+            appId: String(fd.get("appId") || ""),
+            googleWebClientId: String(fd.get("googleWebClientId") || ""),
+            activeUid: String(fd.get("activeUid") || "") || null,
+          },
+        });
+        toast("Espacios de conexión Firebase actualizados.", "success");
         render();
         return;
       }
@@ -2390,12 +3001,14 @@
       if (kind === "reminder") {
         const fd = new FormData(form);
         const reminderId = String(fd.get("id") || "");
+        const rawTime = String(fd.get("dueTime") || "").trim();
         state.data = await call("save_reminder", {
           input: {
             id: reminderId || null,
             title: String(fd.get("title") || ""),
             description: String(fd.get("description") || ""),
-            dueDate: String(fd.get("dueDate") || ""),
+            dueDate: String(fd.get("dueDate") || "").slice(0, 10),
+            dueTime: rawTime ? rawTime.slice(0, 5) : null,
             priority: String(fd.get("priority") || "normal"),
             customerId: String(fd.get("customerId") || "") || null,
             orderId: String(fd.get("orderId") || "") || null,
@@ -2470,6 +3083,9 @@
       /* el aviso ya se mostró */
     } finally {
       if (submit) submit.disabled = false;
+      if (window.CosturaFirebaseBridge && window.CosturaFirebaseBridge.backgroundSyncIfAuthenticated) {
+        window.CosturaFirebaseBridge.backgroundSyncIfAuthenticated();
+      }
     }
   }
 
@@ -2956,6 +3572,14 @@
       applyTheme(current === "dark" ? "light" : "dark");
     });
 
+    const loginThemeBtn = $("#loginThemeToggle");
+    if (loginThemeBtn) {
+      loginThemeBtn.addEventListener("click", () => {
+        const current = document.documentElement.getAttribute("data-theme");
+        applyTheme(current === "dark" ? "light" : "dark");
+      });
+    }
+
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         const confirm = $("#confirm");
@@ -2963,6 +3587,7 @@
         if ($("#modal") && $("#modal").open) closeModal();
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
+        if (!state.ready) return;
         if ($("#modal") && $("#modal").open) return;
         e.preventDefault();
         openOrderForm(null, null);

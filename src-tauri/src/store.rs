@@ -109,36 +109,68 @@ impl Store {
     /// Carga los datos. Devuelve también un aviso cuando hubo que recuperar algo.
     pub fn load(&self) -> (AppData, Option<String>) {
         let path = self.data_file();
-        if !path.exists() {
-            return (AppData::default(), None);
-        }
+        let (mut data, warning) = if !path.exists() {
+            (AppData::default(), None)
+        } else {
+            match read_data(&path) {
+                Ok(data) => (data, None),
+                Err(primary_error) => {
+                    let bak = path.with_extension("json.bak");
+                    if bak.exists() {
+                        if let Ok(data) = read_data(&bak) {
+                            let mut recovered = data;
+                            self.hydrate_firebase_from_env(&mut recovered);
+                            return (
+                                recovered,
+                                Some(format!(
+                                    "El archivo principal estaba dañado ({primary_error}). Se recuperó la copia de seguridad automática."
+                                )),
+                            );
+                        }
+                    }
 
-        match read_data(&path) {
-            Ok(data) => (data, None),
-            Err(primary_error) => {
-                let bak = path.with_extension("json.bak");
-                if bak.exists() {
-                    if let Ok(data) = read_data(&bak) {
-                        return (
-                            data,
-                            Some(format!(
-                                "El archivo principal estaba dañado ({primary_error}). Se recuperó la copia de seguridad automática."
-                            )),
-                        );
+                    let quarantine = self
+                        .dir
+                        .join(format!("costura-danado-{}.json", chrono::Local::now().format("%Y%m%d-%H%M%S")));
+                    let _ = fs::rename(&path, &quarantine);
+                    (
+                        AppData::default(),
+                        Some(format!(
+                            "El archivo de datos no se pudo leer ({primary_error}). Se guardó aparte como '{}' y la app inició vacía. Puedes restaurar un respaldo desde Ajustes.",
+                            quarantine.file_name().and_then(|n| n.to_str()).unwrap_or("costura-danado.json")
+                        )),
+                    )
+                }
+            }
+        };
+        self.hydrate_firebase_from_env(&mut data);
+        (data, warning)
+    }
+
+    /// Hidrata la configuración de Firebase en memoria desde el archivo `.env` local
+    /// sin necesidad de hardcodear claves en el repositorio.
+    pub fn hydrate_firebase_from_env(&self, data: &mut AppData) {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd.join(".env"));
+            if let Some(parent) = cwd.parent() {
+                candidates.push(parent.join(".env"));
+            }
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                candidates.push(dir.join(".env"));
+            }
+        }
+        candidates.push(self.dir.join(".env"));
+
+        for env_path in candidates {
+            if env_path.exists() {
+                if let Ok(raw) = fs::read_to_string(&env_path) {
+                    if data.firebase.apply_dotenv_str(&raw) {
+                        break;
                     }
                 }
-
-                let quarantine = self
-                    .dir
-                    .join(format!("costura-danado-{}.json", chrono::Local::now().format("%Y%m%d-%H%M%S")));
-                let _ = fs::rename(&path, &quarantine);
-                (
-                    AppData::default(),
-                    Some(format!(
-                        "El archivo de datos no se pudo leer ({primary_error}). Se guardó aparte como '{}' y la app inició vacía. Puedes restaurar un respaldo desde Ajustes.",
-                        quarantine.file_name().and_then(|n| n.to_str()).unwrap_or("costura-danado.json")
-                    )),
-                )
             }
         }
     }
@@ -149,6 +181,8 @@ impl Store {
 
         let mut data = data.clone();
         data.version = DATA_VERSION;
+        // Redacta api_key antes de escribir en disco para no dejar secretos en texto plano en costura.json
+        data.firebase = data.firebase.redacted_for_disk();
         let json = serde_json::to_string_pretty(&data)
             .map_err(|e| format!("No se pudieron preparar los datos: {e}"))?;
 
@@ -275,6 +309,7 @@ fn read_data(path: &Path) -> Result<AppData, String> {
         ));
     }
     data.version = DATA_VERSION;
+    data.refresh_customer_aggregates();
     Ok(data)
 }
 
@@ -322,7 +357,8 @@ mod tests {
         let reminder = Reminder {
             id: "r1".into(),
             title: "Prueba".into(),
-            due_date: "2026-12-01T10:00".into(),
+            due_date: "2026-12-01".into(),
+            due_time: Some("10:00".into()),
             created_at: now_iso(),
             ..Default::default()
         };
@@ -407,5 +443,19 @@ mod tests {
         assert!(custom.join(&info.file).exists());
         assert_eq!(store.list_backups(&data).len(), 1);
         let _ = fs::remove_dir_all(custom);
+    }
+
+    #[test]
+    fn hidrata_firebase_desde_env_y_redacta_api_key_en_costura_json() {
+        let store = temp_store();
+        let mut data = sample();
+        data.firebase.api_key = "SECRET_IN_MEMORY_KEY".into();
+        data.firebase.project_id = "tallercostura-9f69d".into();
+        store.save(&data).unwrap();
+
+        // Verifica que en el archivo físico costura.json NO se guarde la api_key en texto plano
+        let raw_on_disk = fs::read_to_string(store.data_file()).unwrap();
+        assert!(!raw_on_disk.contains("SECRET_IN_MEMORY_KEY"));
+        assert!(raw_on_disk.contains("REEMPLAZAR_CON_FIREBASE_API_KEY"));
     }
 }

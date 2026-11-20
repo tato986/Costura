@@ -1,0 +1,24 @@
+{
+  "_comment": "PLANTILLA PARAMETRIZADA FIREBASE — Rellena estos campos cuando crees tu proyecto en Firebase Console",
+  "mode": "emulator",
+  "useEmulators": true,
+  "emulators": {
+    "authHost": "http://127.0.0.1:9099",
+    "firestoreHost": "127.0.0.1:8080",
+    "storageHost": "127.0.0.1:9199"
+  },
+  "firebaseConfig": {
+    "apiKey": "REEMPLAZAR_CON_FIREBASE_API_KEY",
+    "authDomain": "REEMPLAZAR_PROJECT_ID.firebaseapp.com",
+    "projectId": "REEMPLAZAR_PROJECT_ID",
+    "storageBucket": "REEMPLAZAR_PROJECT_ID.firebasestorage.app",
+    "messagingSenderId": "REEMPLAZAR_MESSAGING_SENDER_ID",
+    "appId": "REEMPLAZAR_WEB_APP_ID"
+  },
+  "authProviders": {
+    "emailPassword": true,
+    "googleSignIn": true,
+    "googleWebClientId": "REEMPLAZAR_GOOGLE_OAUTH_WEB_CLIENT_ID.apps.googleusercontent.com",
+    "appleSignIn": false
+  }
+}

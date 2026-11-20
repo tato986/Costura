@@ -21,13 +21,15 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
+      "csp": "default-src 'self'; script-src 'self' https://apis.google.com https://www.gstatic.com https://*.firebaseapp.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://apis.google.com http://127.0.0.1:9099; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost https://firebasestorage.googleapis.com https://*.googleusercontent.com http://127.0.0.1:9199 http://localhost:9199; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://accounts.google.com https://apis.google.com wss://*.firebaseio.com http://127.0.0.1:8080 http://127.0.0.1:9099 http://127.0.0.1:9199 ws://127.0.0.1:8080"
     }
   },
   "bundle": {
     "active": true,
     "targets": [
-      "nsis"
+      "nsis",
+      "app",
+      "dmg"
     ],
     "publisher": "CN=1D206152-7DEC-4E64-832B-010FB525F11D",
     "icon": [
@@ -42,6 +44,9 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
     }
   }
 }

@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ────────────── Funciones Auxiliares ISO/IEC 27001 / 27017 ──────────────
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function validOptionalString(data, field, maxLen) {
+      return !(field in data) || data[field] == null || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function validNumberRange(val, minVal, maxVal) {
+      return (val is int || val is float) && val >= minVal && val <= maxVal;
+    }
+
+    function validNonNegativeNumber(val) {
+      return (val is int || val is float) && val >= 0;
+    }
+
+    // ────────────── Documento Raíz del Taller (/talleres/{uid}) ──────────────
+    match /talleres/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && validString(request.resource.data.workshopName, 1, 120)
+        && validString(request.resource.data.ownerName, 0, 120)
+        && validString(request.resource.data.currency, 1, 10)
+        && validNumberRange(request.resource.data.taxRatePercent, 0, 100)
+        && validString(request.resource.data.taxLabel, 0, 20)
+        && validNumberRange(request.resource.data.defaultDueDays, 1, 365)
+        && request.resource.data.language in ['es', 'en', 'pt'];
+      allow delete: if isOwner(uid);
+
+      // 1. Subcolección: clientes (/talleres/{uid}/clientes/{clienteId})
+      match /clientes/{clienteId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && validString(request.resource.data.fullName, 1, 120)
+          && validString(request.resource.data.phone, 0, 40)
+          && validString(request.resource.data.email, 0, 160)
+          && validString(request.resource.data.address, 0, 300)
+          && validString(request.resource.data.notes, 0, 2000)
+          && validNonNegativeNumber(request.resource.data.pendingBalance)
+          && validNonNegativeNumber(request.resource.data.activeOrdersCount);
+      }
+
+      // 2. Subcolección: pedidos (/talleres/{uid}/pedidos/{pedidoId})
+      match /pedidos/{pedidoId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && validString(request.resource.data.customerId, 1, 80)
+          && validString(request.resource.data.pieceName, 1, 160)
+          && request.resource.data.garmentType in ['camisa', 'pantalon', 'vestido', 'bolso', 'otro']
+          && validString(request.resource.data.customType, 0, 80)
+          && validString(request.resource.data.styleName, 0, 80)
+          && request.resource.data.status in ['pendiente', 'en_corte', 'en_confeccion', 'prueba_ajuste', 'terminado', 'entregado']
+          && request.resource.data.priority in ['normal', 'urgente', 'prioritaria']
+          && validNonNegativeNumber(request.resource.data.estimatedCost)
+          && validNonNegativeNumber(request.resource.data.depositPaid)
+          && validString(request.resource.data.dueDate, 10, 10)
+          && validOptionalString(request.resource.data, 'deliveryDate', 10)
+          && request.resource.data.images.size() <= 4
+          && request.resource.data.revision is int
+          && request.resource.data.revision >= 1;
+      }
+
+      // 3. Subcolección: insumos (/talleres/{uid}/insumos/{insumoId})
+      match /insumos/{insumoId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && validString(request.resource.data.name, 1, 120)
+          && request.resource.data.category in ['tela', 'hilo', 'boton', 'cierre', 'elastico', 'entretela', 'otro']
+          && request.resource.data.unit in ['yarda', 'metro', 'unidad', 'cono', 'rollo', 'par', 'otro']
+          && validNumberRange(request.resource.data.stock, -1000000, 1000000)
+          && validNonNegativeNumber(request.resource.data.minStock)
+          && validNonNegativeNumber(request.resource.data.unitCost)
+          && validString(request.resource.data.supplier, 0, 160)
+          && validString(request.resource.data.notes, 0, 1000);
+      }
+
+      // 4. Subcolección: movimientos (/talleres/{uid}/movimientos/{movId}) — Kárdex Inmutable
+      match /movimientos/{movId} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && validString(request.resource.data.supplyId, 1, 80)
+          && request.resource.data.kind in ['entrada', 'salida', 'devolucion', 'ajuste']
+          && (request.resource.data.delta is int || request.resource.data.delta is float)
+          && validString(request.resource.data.reason, 1, 200);
+        allow update: if false;
+      }
+
+      // 5. Subcolección: agenda (/talleres/{uid}/agenda/{recordatorioId})
+      match /agenda/{recordatorioId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && validString(request.resource.data.title, 1, 140)
+          && validString(request.resource.data.description, 0, 1500)
+          && validString(request.resource.data.dueDate, 10, 10)
+          && request.resource.data.dueDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+          && (!('dueTime' in request.resource.data) || request.resource.data.dueTime == null || (request.resource.data.dueTime is string && request.resource.data.dueTime.size() == 5 && request.resource.data.dueTime.matches('^\\d{2}:\\d{2}$')))
+          && request.resource.data.priority in ['normal', 'urgente', 'prioritaria']
+          && request.resource.data.completed is bool;
+      }
+
+      // 6. Subcolección: auditoria (/talleres/{uid}/auditoria/{eventoId}) — ISO 27002 8.15 Inmutable
+      match /auditoria/{eventoId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && validString(request.resource.data.action, 1, 80)
+          && validString(request.resource.data.entityType, 1, 40)
+          && validString(request.resource.data.entityId, 1, 120)
+          && validString(request.resource.data.timestamp, 10, 40);
+        allow update, delete: if false;
+      }
+    }
+  }
+}
